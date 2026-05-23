@@ -2194,7 +2194,10 @@ static void dispatchCollisionEvents(Runner* runner) {
                 // Iterate only the descendant-inclusive list for the target object via a snapshot, so nested user code (collision handlers calling instance_exists, with (...), etc.) can push/pop their own snapshots above ours without corrupting this iteration.
                 int32_t snapBase = Runner_pushInstancesOfObject(runner, targetObjIndex);
                 int32_t snapEnd  = (int32_t) arrlen(runner->instanceSnapshots);
-                for (int32_t snapIdx = snapBase; snapEnd > snapIdx; snapIdx++) {
+                // TODO: This is a STUPID HACKY HACK to fix phasing through the pillar in the long corridor section in Undertale
+                //  I DO NOT THINK THAT THIS IS CORRECT, and this CAN and WILL cause iteration order issues in the future
+                //  But at the same time I couldn't figure out HOW the YoYo collision iteration order works to NOT have this issue
+                for (int32_t snapIdx = snapEnd - 1; snapIdx >= snapBase; snapIdx--) {
                     Instance* other = runner->instanceSnapshots[snapIdx];
                     if (!other->active) continue;
                     if (other == self) continue;
