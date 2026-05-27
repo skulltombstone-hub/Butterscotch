@@ -229,9 +229,19 @@ static inline RValue RValue_makeIndependent(RValue val) {
 static inline char* RValue_toString(RValue val) {
     char buf[64];
     switch (val.type) {
-        case RVALUE_REAL:
-            snprintf(buf, sizeof(buf), "%.16g", (double) val.real);
+        case RVALUE_REAL: {
+            double d = (double) val.real;
+            if (isnan(d)) return safeStrdup("NaN");
+            if (isinf(d)) return safeStrdup(d < 0 ? "-inf" : "inf");
+            // Is this a integer?
+            if (d >= -9.2233720368547758e18 && d <= 9.2233720368547758e18 && d == (double) (int64_t) d) {
+                snprintf(buf, sizeof(buf), "%lld", (long long) (int64_t) d);
+            } else {
+                // For anything else, we format to two decimal places
+                snprintf(buf, sizeof(buf), "%.2f", d);
+            }
             return safeStrdup(buf);
+        }
         case RVALUE_INT32:
             snprintf(buf, sizeof(buf), "%d", val.int32);
             return safeStrdup(buf);
