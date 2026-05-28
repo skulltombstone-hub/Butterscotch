@@ -6396,8 +6396,7 @@ static RValue builtin_action_move_start(VMContext* ctx, MAYBE_UNUSED RValue* arg
     return RValue_makeUndefined();
 }
 
-// action_potential_step(x, y, stepsize, checkall): DnD wrapper around mp_potential_step that
-// honors the "relative" checkbox by shifting (x, y) by the current instance's position.
+// action_potential_step(x, y, stepsize, checkall): DnD wrapper around mp_potential_step that honors the "relative" checkbox by shifting (x, y) by the current instance's position.
 static RValue builtin_action_potential_step(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     GMLReal goalX = RValue_toReal(args[0]);
     GMLReal goalY = RValue_toReal(args[1]);
@@ -6408,6 +6407,83 @@ static RValue builtin_action_potential_step(VMContext* ctx, MAYBE_UNUSED RValue*
         goalY += ctx->currentInstance->y;
     }
     return builtinMpPotentialStepCommon(ctx, goalX, goalY, stepsize, INSTANCE_ALL, checkall);
+}
+
+// Tests whether the current instance can occupy (testX, testY) without colliding (useall=true checks all instances, false checks only solids).
+static bool bounceTestFree(Runner* runner, Instance* inst, GMLReal testX, GMLReal testY, bool useall) {
+    if (useall) {
+        return placeEmptyAt(runner, inst, testX, testY);
+    }
+    return placeFreeAt(runner, inst, testX, testY);
+}
+
+// action_bounce(adv, against): DnD wrapper around move_bounce_solid / move_bounce_all.
+// * adv (arg[0]): real, treated as bool via the native ">= 0.5" rule.
+// * against (arg[1]): real menu pick: 0 = solid only, 1 = all instances (useall = (against == 1.0)).
+static RValue builtin_action_bounce(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (ctx->currentInstance == nullptr) return RValue_makeUndefined();
+
+    Runner* runner = ctx->runner;
+    Instance* inst = ctx->currentInstance;
+    bool advanced = RValue_toReal(args[0]) >= 0.5;
+    bool useall = RValue_toReal(args[1]) == 1.0;
+
+    bool didBounce = false;
+    if (!bounceTestFree(runner, inst, inst->x, inst->y, useall)) {
+        inst->x = inst->xprevious;
+        inst->y = inst->yprevious;
+        SpatialGrid_markInstanceAsDirty(runner->spatialGrid, inst);
+        didBounce = true;
+    }
+
+    GMLReal xx = inst->x;
+    GMLReal yy = inst->y;
+
+    if (advanced) {
+        int32_t n = 18;
+        GMLReal dir = 10.0 * GMLReal_round(inst->direction / 10.0);
+        GMLReal ldir = dir;
+        GMLReal rdir = dir;
+        for (int32_t i = 1; 2 * n > i; i++) {
+            ldir -= 180.0 / (GMLReal) n;
+            GMLReal xn = xx + inst->speed * GMLReal_cos(ldir * (M_PI / 180.0));
+            GMLReal yn = yy - inst->speed * GMLReal_sin(ldir * (M_PI / 180.0));
+            if (bounceTestFree(runner, inst, xn, yn, useall)) {
+                break;
+            }
+            didBounce = true;
+        }
+        for (int32_t i = 1; 2 * n > i; i++) {
+            rdir += 180.0 / (GMLReal) n;
+            GMLReal xn = xx + inst->speed * GMLReal_cos(rdir * (M_PI / 180.0));
+            GMLReal yn = yy - inst->speed * GMLReal_sin(rdir * (M_PI / 180.0));
+            if (bounceTestFree(runner, inst, xn, yn, useall)) {
+                break;
+            }
+            didBounce = true;
+        }
+        if (didBounce) {
+            inst->direction = (float) (180.0 + (ldir + rdir) - dir);
+            Instance_computeComponentsFromSpeed(inst);
+        }
+    } else {
+        bool canMoveH = bounceTestFree(runner, inst, inst->x + inst->hspeed, inst->y, useall);
+        bool canMoveV = bounceTestFree(runner, inst, inst->x, inst->y + inst->vspeed, useall);
+        bool canMoveDiagonally = bounceTestFree(runner, inst, inst->x + inst->hspeed, inst->y + inst->vspeed, useall);
+        if (!canMoveH && !canMoveV) {
+            inst->hspeed = -inst->hspeed;
+            inst->vspeed = -inst->vspeed;
+        } else if (canMoveH && canMoveV && !canMoveDiagonally) {
+            inst->hspeed = -inst->hspeed;
+            inst->vspeed = -inst->vspeed;
+        } else if (!canMoveH) {
+            inst->hspeed = -inst->hspeed;
+        } else if (!canMoveV) {
+            inst->vspeed = -inst->vspeed;
+        }
+        Instance_computeSpeedFromComponents(inst);
+    }
+    return RValue_makeUndefined();
 }
 
 static RValue builtin_action_snap(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -12191,6 +12267,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
         VM_registerBuiltin(ctx, "action_move_to", builtin_action_move_to);
         VM_registerBuiltin(ctx, "action_move_start", builtin_action_move_start);
         VM_registerBuiltin(ctx, "action_potential_step", builtin_action_potential_step);
+        VM_registerBuiltin(ctx, "action_bounce", builtin_action_bounce);
         VM_registerBuiltin(ctx, "action_snap", builtin_action_snap);
         VM_registerBuiltin(ctx, "action_set_friction", builtin_action_set_friction);
         VM_registerBuiltin(ctx, "action_set_gravity", builtin_action_set_gravity);
