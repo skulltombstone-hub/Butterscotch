@@ -6486,6 +6486,35 @@ static RValue builtin_action_bounce(VMContext* ctx, MAYBE_UNUSED RValue* args, M
     return RValue_makeUndefined();
 }
 
+// Steps the current instance up to maxdist pixels in "dir" (degrees), stopping the unit before it would collide. useall=true tests all instances, false tests only solids.
+static void moveContactCommon(Runner* runner, Instance* inst, GMLReal dir, GMLReal maxdist, bool useall) {
+    int32_t steps = (maxdist <= 0.0) ? 1000 : (int32_t) GMLReal_bankersRound(maxdist);
+    GMLReal rad = dir * (M_PI / 180.0);
+    GMLReal dx = GMLReal_cos(rad);
+    GMLReal dy = -GMLReal_sin(rad);
+    if (!bounceTestFree(runner, inst, inst->x, inst->y, useall)) {
+        return;
+    }
+    for (int32_t i = 1; steps >= i; i++) {
+        GMLReal nx = inst->x + dx;
+        GMLReal ny = inst->y + dy;
+        if (!bounceTestFree(runner, inst, nx, ny, useall)) {
+            return;
+        }
+        inst->x = (float) nx;
+        inst->y = (float) ny;
+        SpatialGrid_markInstanceAsDirty(runner->spatialGrid, inst);
+    }
+}
+
+static RValue builtin_move_contact_solid(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (ctx->currentInstance == nullptr) return RValue_makeUndefined();
+    GMLReal dir = RValue_toReal(args[0]);
+    GMLReal maxdist = RValue_toReal(args[1]);
+    moveContactCommon(ctx->runner, ctx->currentInstance, dir, maxdist, false);
+    return RValue_makeUndefined();
+}
+
 static RValue builtin_action_snap(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     GMLReal hsnap = RValue_toReal(args[0]);
     GMLReal vsnap = RValue_toReal(args[1]);
@@ -11961,6 +11990,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
         VM_registerBuiltin(ctx, "action_move_point", builtin_move_towards_point);
     }
     VM_registerBuiltin(ctx, "move_snap", builtin_move_snap);
+    VM_registerBuiltin(ctx, "move_contact_solid", builtin_move_contact_solid);
     VM_registerBuiltin(ctx, "lengthdir_x", builtin_lengthdir_x);
     VM_registerBuiltin(ctx, "lengthdir_y", builtin_lengthdir_y);
 
