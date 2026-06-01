@@ -70,7 +70,7 @@ Of course, there are exceptions that break game compatibility altogether:
 
 ```bash
 mkdir build && cd build
-cmake -DPLATFORM=glfw -DCMAKE_BUILD_TYPE=Debug ..
+cmake -DPLATFORM=desktop -DDESKTOP_BACKEND=glfw3 -DCMAKE_BUILD_TYPE=Debug ..
 make
 ```
 
