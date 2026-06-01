@@ -379,7 +379,7 @@ int main(int argc, char* argv[]) {
             stepTime = PS3_GET_TIME - stepStart;
 
             // Update audio system (gain fading, cleanup ended sounds)
-            float dt = (float) (PS3_GET_TIME - lastFrameTime);
+            float dt = (float) (runner->deltaTime / 1000000.0);
             if (0.0f > dt) dt = 0.0f;
             if (dt > 0.1f) dt = 0.1f; // cap delta to avoid huge fades on lag spikes
             double audioStart = PS3_GET_TIME;
