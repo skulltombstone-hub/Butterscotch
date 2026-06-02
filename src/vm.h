@@ -21,6 +21,7 @@
 #define INSTANCE_LOCAL     (-7)
 #define INSTANCE_STACKTOP  (-9)
 #define INSTANCE_ARG       (-15)
+#define INSTANCE_STATIC    (-16)
 
 // ===[ Variable Types (upper 5 bits of varRef, extracted with (varRef >> 24) & 0xF8) ]===
 #define VARTYPE_ARRAY     0x00
@@ -209,6 +210,8 @@ struct VMContext {
 
     // V17+ extended BREAK opcode state
     bool* staticInitialized; // Per-code-entry flag for isstaticok/setstatic (allocated in VM_create)
+    // Static variables: per-constructor shared static struct.
+    Instance** staticStructs;
     // BC17+: owner token set by BREAK_SETOWNER. Arrays whose .owner mismatches fork on write.
     void* currentArrayOwner;
     // SAVEAREF/RESTOREAREF balance tracker.
@@ -295,6 +298,9 @@ void VM_arraySet(VMContext* ctx, RValue* arrayRef, int32_t index, RValue val);
 // Unknown variables are not written to the struct.
 // Takes ownership of "val" and frees it after copying into the struct.
 void VM_structSet(VMContext* ctx, Instance* structInst, const char* name, RValue val);
+
+// @@CopyStatic@@: chain the current constructor's static struct to a parent constructor's static struct (static inheritance).
+void VM_copyStatic(VMContext* ctx, RValue* parentRef);
 
 // Look up the varID for a self-scoped variable name, allocating a fresh synthetic ID if absent.
 int32_t VM_getOrAllocateSelfVarID(VMContext* ctx, const char* name);

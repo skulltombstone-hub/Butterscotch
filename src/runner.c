@@ -1923,6 +1923,7 @@ static void Runner_sweepDeadStructs(Runner* runner) {
     for (int32_t i = count - 1; i >= 0; i--) {
         Instance* s = runner->structInstances[i];
         if (s->refCount > 1) continue; // still referenced by user code
+        if (s->pinned) continue; // Don't sweep pinned structs
         require(s->refCount == 1);
 
         // Remove from runner->instancesById so future findInstanceByTarget(id) returns nullptr.

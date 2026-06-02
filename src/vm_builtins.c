@@ -11100,6 +11100,8 @@ static RValue builtin_NewGMLObject(VMContext* ctx, RValue* args, int32_t argCoun
     Instance* structInst = Runner_createStruct(runner);
     // Bump to 2: registry's implicit ref + the returned RValue's ref.
     structInst->refCount = 2;
+    // Remember the constructor so member reads can fallback to its shared static struct.
+    structInst->constructorCodeIndex = codeIndex;
 
     Instance* savedSelf = ctx->currentInstance;
     ctx->currentInstance = structInst;
@@ -11111,6 +11113,14 @@ static RValue builtin_NewGMLObject(VMContext* ctx, RValue* args, int32_t argCoun
 
     ctx->currentInstance = savedSelf;
     return RValue_makeStruct(structInst);
+}
+
+// @@CopyStatic@@(parentRef) - links the current constructor's static struct to a parent constructor's static struct so a child instance resolves fields declared "static" on the parent (constructor inheritance).
+static RValue builtin_CopyStatic(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeUndefined();
+
+    VM_copyStatic(ctx, &args[0]);
+    return RValue_makeUndefined();
 }
 #endif
 
@@ -12929,6 +12939,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
 #if IS_WAD17_OR_HIGHER_ENABLED
     VM_registerBuiltin(ctx, "@@NullObject@@", builtin_NullObject);
     VM_registerBuiltin(ctx, "@@NewGMLObject@@", builtin_NewGMLObject);
+    VM_registerBuiltin(ctx, "@@CopyStatic@@", builtin_CopyStatic);
     VM_registerBuiltin(ctx, "@@SetStatic@@", builtin_SetStatic);
 #endif
 

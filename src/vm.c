@@ -564,6 +564,73 @@ static inline bool tryFastVarRead(VMContext* ctx, int32_t instanceType, Variable
     return false;
 }
 
+#if IS_WAD17_OR_HIGHER_ENABLED
+// Static variables: Each code index has its own "struct" for static variables.
+// Lazily create a struct for each codeIndex that needs a static variable.
+static Instance* getOrCreateStaticStruct(VMContext* ctx, int32_t codeIndex) {
+    if (ctx->staticStructs == nullptr || 0 > codeIndex || (uint32_t) codeIndex >= ctx->dataWin->code.count) return nullptr;
+    Instance* staticStruct = ctx->staticStructs[codeIndex];
+    if (staticStruct == nullptr) {
+        staticStruct = Runner_createStruct((Runner*) ctx->runner);
+        staticStruct->pinned = true;
+        ctx->staticStructs[codeIndex] = staticStruct;
+    }
+    return staticStruct;
+}
+
+// Used when the static variable could not be read from the original struct, walks through the chain to find who is the owner of the static variable.
+// Returns true and fills *out when found.
+static bool tryReadStaticFallback(VMContext* ctx, Instance* inst, int32_t varID, ArrayAccess* access, RValue* out) {
+    if (ctx->staticStructs == nullptr || inst == nullptr || inst->objectIndex != STRUCT_OBJECT_INDEX) return false;
+    if (0 > inst->constructorCodeIndex || (uint32_t) inst->constructorCodeIndex >= ctx->dataWin->code.count) return false;
+    Instance* staticStruct = ctx->staticStructs[inst->constructorCodeIndex];
+    int32_t depth = 0;
+    // Walk instance's static struct -> parent static -> ...
+    while (staticStruct != nullptr) {
+        requireMessage(64 > depth, "Try read static fallback chain is too deep! Bug?");
+        RValue* sslot = IntRValueHashMap_findSlot(&staticStruct->selfVars, varID);
+        if (sslot != nullptr) {
+            if (access->isArray) {
+                *out = VM_arrayReadAt(sslot, access->arrayIndex);
+            } else {
+                *out = *sslot;
+                out->ownsReference = false;
+            }
+            return true;
+        }
+        staticStruct = staticStruct->staticParent;
+
+        depth++;
+    }
+    return false;
+}
+
+// Links the current constructor's static struct to a parent constructor's static struct for static inheritance.
+void VM_copyStatic(VMContext* ctx, RValue* parentRef) {
+    if (ctx->staticStructs == nullptr) return;
+    // Resolve the parent constructor's code index (FUNC index -> name -> codeIndex), mirroring @@NewGMLObject@@.
+    int32_t parentCodeIndex = -1;
+    if (parentRef->type == RVALUE_METHOD && parentRef->method != nullptr) {
+        parentCodeIndex = parentRef->method->codeIndex;
+    } else {
+        int32_t rawArg = RValue_toInt32(*parentRef);
+        if (rawArg >= 0 && ctx->dataWin->func.functionCount > (uint32_t) rawArg) {
+            const char* funcName = ctx->dataWin->func.functions[rawArg].name;
+            if (funcName != nullptr) {
+                ptrdiff_t idx = shgeti(ctx->codeIndexByName, (char*) funcName);
+                if (idx >= 0) parentCodeIndex = ctx->codeIndexByName[idx].value;
+            }
+        }
+    }
+    if (0 > parentCodeIndex) return;
+    Instance* childStatic = getOrCreateStaticStruct(ctx, ctx->currentCodeIndex);
+    Instance* parentStatic = getOrCreateStaticStruct(ctx, parentCodeIndex);
+    if (childStatic != nullptr && parentStatic != nullptr && childStatic != parentStatic) {
+        childStatic->staticParent = parentStatic;
+    }
+}
+#endif
+
 static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t varRef) {
     Variable* varDef = resolveVarDef(ctx, varRef);
     ArrayAccess access = popArrayAccess(ctx, varRef);
@@ -600,6 +667,11 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
         if (ctx->otherInstance != nullptr) {
             targetInstance = (Instance*) ctx->otherInstance;
         }
+#if IS_WAD17_OR_HIGHER_ENABLED
+    } else if (instanceType == INSTANCE_STATIC) {
+        // "static" scope: read from the current constructor's shared static struct via the normal slot path below.
+        targetInstance = getOrCreateStaticStruct(ctx, ctx->currentCodeIndex);
+#endif
     } else if (IS_WAD17_OR_HIGHER(ctx) && instanceType == INSTANCE_ARG) {
         // BC17: argument0..argument15 via INSTANCE_ARG instance type (builtinVarId pre-resolved at parse time)
         int16_t builtinVarId = varDef->builtinVarId;
@@ -754,6 +826,13 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
             slot = IntRValueHashMap_findSlot(&inst->selfVars, varDef->varID);
             // sparse storage: nonexistent entry -> treat as undefined scalar (array reads fall through to VM_arrayReadAt returning undefined)
             if (slot == nullptr) {
+#if IS_WAD17_OR_HIGHER_ENABLED
+                // Static variables: a struct field declared "static" lives on the constructor's shared static struct, not the instance.
+                RValue staticVal;
+                if (tryReadStaticFallback(ctx, inst, varDef->varID, &access, &staticVal)) {
+                    return staticVal;
+                }
+#endif
                 return (RValue){ .type = RVALUE_UNDEFINED };
             }
             break;
@@ -913,6 +992,16 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
 #if IS_WAD17_OR_HIGHER_ENABLED
     if (IS_WAD17_OR_HIGHER(ctx) && !access.hasInstanceType && instanceType == INSTANCE_STACKTOP) {
         instanceType = resolveInstanceStackTop(ctx);
+    }
+
+    // "static" scope: write to the current constructor's shared static struct (runs once, guarded by isstaticok/setstatic).
+    if (instanceType == INSTANCE_STATIC) {
+        Instance* staticStruct = getOrCreateStaticStruct(ctx, ctx->currentCodeIndex);
+        if (staticStruct != nullptr) {
+            writeSingleInstanceVariable(ctx, staticStruct, varDef, &access, val);
+        }
+        RValue_free(&val);
+        return;
     }
 #endif
 
@@ -3431,8 +3520,10 @@ VMContext* VM_create(DataWin* dataWin) {
     // V17+ static initialization tracking
     if (dataWin->gen8.wadVersion >= 17) {
         ctx->staticInitialized = safeCalloc(dataWin->code.count, sizeof(bool));
+        ctx->staticStructs = safeCalloc(dataWin->code.count, sizeof(Instance*));
     } else {
         ctx->staticInitialized = nullptr;
+        ctx->staticStructs = nullptr;
     }
     ctx->currentArrayOwner = nullptr;
     ctx->savearefBalance = 0;
@@ -4426,6 +4517,7 @@ void VM_free(VMContext* ctx) {
 
     // Free V17+ static tracking
     free(ctx->staticInitialized);
+    free(ctx->staticStructs);
 
     // Free per-code varID -> slot maps (BC17+ only; nullptr otherwise).
     if (ctx->codeLocalsSlotMaps != nullptr) {
