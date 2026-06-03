@@ -43,6 +43,17 @@ bool platformGetWindowSize(int32_t* outW, int32_t* outH) {
     return true;
 }
 
+bool platformGetScaledWindowSize(int32_t* outW, int32_t* outH) {
+    if (!outW || !outH || !window) return false;
+    int w = 0;
+    int h = 0;
+    glfwGetWindowSize(window, &w, &h);
+    if (w <= 0 || h <= 0) return false;
+    *outW = w;
+    *outH = h;
+    return true;
+}
+
 void platformSetWindowSize(int32_t width, int32_t height) {
     if (width <= 0 || height <= 0) return;
     if (!window) return;
@@ -51,6 +62,11 @@ void platformSetWindowSize(int32_t width, int32_t height) {
     int logicalW, logicalH;
     framebufferToLogical(xs, ys, width, height, &logicalW, &logicalH);
     glfwSetWindowSize(window, logicalW, logicalH);
+}
+
+void platformGetMousePos(double *xPos, double *yPos) {
+    if (!xPos || !yPos) return;
+    glfwGetCursorPos(window, xPos, yPos);
 }
 
 static bool platformGetWindowFocus(void) {
@@ -129,6 +145,38 @@ static void resizeCallback(GLFWwindow* window, int width, int height) {
 
 #endif
 
+static int32_t glfwMouseButtonToGml(int glfwButton) {
+    switch (glfwButton) {
+        case GLFW_MOUSE_BUTTON_LEFT: return GML_MB_LEFT;
+        case GLFW_MOUSE_BUTTON_RIGHT: return GML_MB_RIGHT;
+        case GLFW_MOUSE_BUTTON_MIDDLE: return GML_MB_MIDDLE;
+        default: return INT32_MIN; // Unknown
+    }
+}
+
+static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos) {
+    int winWidth, winHeight;
+    glfwGetWindowSize(window, &winWidth, &winHeight);
+
+    if (winWidth <= 0 || winHeight <= 0) return;
+
+    g_runner->mouse->normalizedX = (xpos - g_runner->viewportX) / g_runner->viewportW;
+    g_runner->mouse->normalizedY = (ypos - g_runner->viewportY) / g_runner->viewportH;
+}
+
+static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
+    (void)mods;
+    int32_t gmlButton = glfwMouseButtonToGml(button);
+    if (0 > gmlButton) return;
+    if (action == GLFW_PRESS) RunnerMouse_onButtonDown(g_runner->mouse, gmlButton);
+    else if (action == GLFW_RELEASE) RunnerMouse_onButtonUp(g_runner->mouse, gmlButton);
+}
+
+static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
+    (void)xoffset;
+    RunnerMouse_onWheel(g_runner->mouse, yoffset);
+}
+
 bool platformInit(int32_t reqW, int32_t reqH, const char *title, bool headless) {
     // Init GLFW
     glfwSetErrorCallback(glfwErrorCallback);
@@ -201,6 +249,11 @@ bool platformInit(int32_t reqW, int32_t reqH, const char *title, bool headless) 
     // Set up keyboard input
     glfwSetKeyCallback(window, keyCallback);
     glfwSetCharCallback(window, characterCallback);
+    // Set up mouse input
+    glfwSetCursorPosCallback(window, cursorPositionCallback);
+    glfwSetMouseButtonCallback(window, mouseButtonCallback);
+    glfwSetScrollCallback(window, scrollCallback);
+
     return true;
 }
 

@@ -11,6 +11,7 @@
 #include "runner_keyboard.h"
 #include "spatial_grid.h"
 #include "runner_gamepad.h"
+#include "runner_mouse.h"
 #include "vm.h"
 
 // ===[ Event Type Constants ]===
@@ -20,6 +21,7 @@
 #define EVENT_STEP       3
 #define EVENT_COLLISION  4
 #define EVENT_KEYBOARD   5
+#define EVENT_MOUSE      6
 #define EVENT_OTHER      7
 #define EVENT_DRAW       8
 #define EVENT_KEYPRESS   9
@@ -41,6 +43,31 @@
 #define DRAW_GUI_END   75
 #define DRAW_PRE       76
 #define DRAW_POST      77
+
+// ===[ Mouse Sub-event Constants ]===
+#define MOUSE_LEFT_BUTTON 0
+#define MOUSE_RIGHT_BUTTON 1
+#define MOUSE_MIDDLE_BUTTON 2
+#define MOUSE_NO_BUTTON 3
+#define MOUSE_LEFT_PRESSED 4
+#define MOUSE_RIGHT_PRESSED 5
+#define MOUSE_MIDDLE_PRESSED 6
+#define MOUSE_LEFT_RELEASED 7
+#define MOUSE_RIGHT_RELEASED 8
+#define MOUSE_MIDDLE_RELEASED 9
+#define MOUSE_ENTER 10
+#define MOUSE_LEAVE 11
+#define MOUSE_GLOB_LEFT_BUTTON 50
+#define MOUSE_GLOB_RIGHT_BUTTON 51
+#define MOUSE_GLOB_MIDDLE_BUTTON 52
+#define MOUSE_GLOB_LEFT_PRESSED 53
+#define MOUSE_GLOB_RIGHT_PRESSED 54
+#define MOUSE_GLOB_MIDDLE_PRESSED 55
+#define MOUSE_GLOB_LEFT_RELEASED 56
+#define MOUSE_GLOB_RIGHT_RELEASED 57
+#define MOUSE_GLOB_MIDDLE_RELEASED 58
+#define MOUSE_WHEEL_UP 60
+#define MOUSE_WHEEL_DOWN 61
 
 // ===[ Other Sub-event Constants ]===
 #define OTHER_OUTSIDE_ROOM   0
@@ -400,6 +427,7 @@ struct Runner {
     int frameCount;
     uint32_t nextInstanceId;
     RunnerKeyboardState* keyboard;
+    RunnerMouseState* mouse;
     RuntimeView views[MAX_VIEWS];
     GMLCamera defaultCameras[MAX_DEFAULT_ROOM_CAMERAS];
     GMLCamera userCameras[MAX_USER_CAMERAS];
@@ -431,6 +459,13 @@ struct Runner {
     uint32_t nextLayerId;        // counter for IDs of layers/elements created at runtime
     SavedRoomState* savedRoomStates; // array of size dataWin->room.count, for persistent room support
     int32_t viewCurrent; // index of the view currently being drawn (for view_current)
+    int32_t renderGameW; // FBO width used by the last frame (= max port bound), 0 if not yet rendered
+    int32_t renderGameH; // FBO height used by the last frame (= max port bound), 0 if not yet rendered
+    int32_t viewportX;   // X offset in window (letterboxing)
+    int32_t viewportY;   // Y offset in window (letterboxing)
+    int32_t viewportW;   // Scaled game width in window
+    int32_t viewportH;   // Scaled game height in window
+    int32_t viewSurfaceIds[8]; // view_surface_id per view, -1 = default (render to screen), else surface index
     struct { char* key; int value; }* disabledObjects; // stb_ds string hashmap, nullptr = no filtering
     struct { int key; Instance* value; }* instancesById;
     bool forceDrawDepth;
@@ -558,6 +593,9 @@ void Runner_drawPost(Runner* runner, int32_t windowW, int32_t windowH);
 void Runner_drawBackgrounds(Runner* runner, bool foreground);
 void Runner_computeViewDisplayScale(Runner* runner, int32_t gameW, int32_t gameH, float* outScaleX, float* outScaleY);
 void Runner_drawViews(Runner* runner, int32_t gameW, int32_t gameH, float displayScaleX, float displayScaleY, bool debugShowCollisionMasks);
+void Runner_updateMousePosition(Runner* runner, int32_t winW, int32_t winH, double mx, double my);
+// Converts the cached screen-space cursor (RunnerMouseState.screenX/screenY) to room/world coordinates using the LIVE camera/view state.
+void Runner_getMouseRoomPosition(Runner* runner, GMLReal* outX, GMLReal* outY);
 // Resolves a camera id (slot index) to its pool entry, or nullptr if out of range / not allocated.
 GMLCamera* Runner_getCameraById(Runner* runner, int32_t id);
 // Resolves the camera assigned to a view, or nullptr if the view index is invalid or has no allocated camera.

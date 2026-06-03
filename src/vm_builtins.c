@@ -295,6 +295,10 @@ static const BuiltinVarEntry BUILTIN_VAR_TABLE[] = {
     { "layer", BUILTIN_VAR_LAYER },
     { "lives", BUILTIN_VAR_LIVES },
     { "mask_index", BUILTIN_VAR_MASK_INDEX },
+    { "mouse_button", BUILTIN_VAR_MOUSE_BUTTON },
+    { "mouse_lastbutton", BUILTIN_VAR_MOUSE_LASTBUTTON },
+    { "mouse_x", BUILTIN_VAR_MOUSE_X },
+    { "mouse_y", BUILTIN_VAR_MOUSE_Y },
     { "object_index", BUILTIN_VAR_OBJECT_INDEX },
     { "os_3ds", BUILTIN_VAR_OS_3DS },
     { "os_amazon", BUILTIN_VAR_OS_AMAZON },
@@ -371,6 +375,7 @@ static const BuiltinVarEntry BUILTIN_VAR_TABLE[] = {
     { "view_hspeed", BUILTIN_VAR_VIEW_HSPEED },
     { "view_hview", BUILTIN_VAR_VIEW_HVIEW },
     { "view_object", BUILTIN_VAR_VIEW_OBJECT },
+    { "view_surface_id", BUILTIN_VAR_VIEW_SURFACE_ID },
     { "view_vborder", BUILTIN_VAR_VIEW_VBORDER },
     { "view_visible", BUILTIN_VAR_VIEW_VISIBLE },
     { "view_vspeed", BUILTIN_VAR_VIEW_VSPEED },
@@ -786,6 +791,9 @@ RValue VMBuiltins_getVariable(VMContext* ctx, int16_t builtinVarId, const char* 
             if (camera != nullptr) return RValue_makeReal((GMLReal) camera->speedY);
             return RValue_makeReal(0.0);
         }
+        case BUILTIN_VAR_VIEW_SURFACE_ID:
+            if (arrayIndex >= 0 && MAX_VIEWS > arrayIndex) return RValue_makeReal((GMLReal) runner->viewSurfaceIds[arrayIndex]);
+            return RValue_makeReal(-1.0);
 
         // Background properties
         case BUILTIN_VAR_BACKGROUND_VISIBLE:
@@ -901,6 +909,17 @@ RValue VMBuiltins_getVariable(VMContext* ctx, int16_t builtinVarId, const char* 
             return RValue_makeString(runner->keyboard->lastChar);
         case BUILTIN_VAR_KEYBOARD_LASTKEY:
             return RValue_makeReal((GMLReal) runner->keyboard->lastKey);
+
+        case BUILTIN_VAR_MOUSE_X: {
+            GMLReal mouseRoomX, mouseRoomY;
+            Runner_getMouseRoomPosition(runner, &mouseRoomX, &mouseRoomY);
+            return RValue_makeReal(mouseRoomX);
+        }
+        case BUILTIN_VAR_MOUSE_Y: {
+            GMLReal mouseRoomX, mouseRoomY;
+            Runner_getMouseRoomPosition(runner, &mouseRoomX, &mouseRoomY);
+            return RValue_makeReal(mouseRoomY);
+        }
 
         // Surfaces
         case BUILTIN_VAR_APPLICATION_SURFACE:
@@ -1396,6 +1415,9 @@ void VMBuiltins_setVariable(VMContext* ctx, int16_t builtinVarId, const char* na
             if (camera != nullptr) camera->speedY = RValue_toInt32(val);
             return;
         }
+        case BUILTIN_VAR_VIEW_SURFACE_ID:
+            if (arrayIndex >= 0 && MAX_VIEWS > arrayIndex) runner->viewSurfaceIds[arrayIndex] = RValue_toInt32(val);
+            return;
 
         // Background properties
         case BUILTIN_VAR_BACKGROUND_VISIBLE:
@@ -6122,6 +6144,58 @@ static RValue builtin_keyboard_unset_map(VMContext* ctx, MAYBE_UNUSED RValue* ar
     return RValue_makeUndefined();
 }
 
+// Mouse functions
+static RValue builtinDeviceMouseCheckButton(VMContext* ctx, RValue* args, int32_t argCount) {   
+    if (2 > argCount) return RValue_makeBool(false);
+    Runner* runner = (Runner*) ctx->runner;
+
+    // We only support mouse 0 for now (device 0)
+    int32_t device = RValue_toInt32(args[0]);
+    if (device != 0) return RValue_makeBool(false);
+
+    int32_t button = RValue_toInt32(args[1]);
+    return RValue_makeBool(RunnerMouse_checkButton(runner->mouse, button));
+}
+
+static RValue builtinMouseCheckButton(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeBool(false);
+    Runner* runner = (Runner*) ctx->runner;
+    int32_t button = RValue_toInt32(args[0]);
+    return RValue_makeBool(RunnerMouse_checkButton(runner->mouse, button));
+}
+
+static RValue builtinMouseCheckButtonPressed(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeBool(false);
+    Runner* runner = (Runner*) ctx->runner;
+    int32_t button = RValue_toInt32(args[0]);
+    return RValue_makeBool(RunnerMouse_checkButtonPressed(runner->mouse, button));
+}
+
+static RValue builtinMouseCheckButtonReleased(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeBool(false);
+    Runner* runner = (Runner*) ctx->runner;
+    int32_t button = RValue_toInt32(args[0]);
+    return RValue_makeBool(RunnerMouse_checkButtonReleased(runner->mouse, button));
+}
+
+static RValue builtinMouseClear(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeUndefined();
+    Runner* runner = (Runner*) ctx->runner;
+    int32_t button = RValue_toInt32(args[0]);
+    RunnerMouse_clear(runner->mouse, button);
+    return RValue_makeUndefined();
+}
+
+static RValue builtinMouseWheelUp(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    return RValue_makeBool(RunnerMouse_getWheelUp(runner->mouse));
+}
+
+static RValue builtinMouseWheelDown(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    return RValue_makeBool(RunnerMouse_getWheelDown(runner->mouse));
+}
+
 // ===[ Joystick Functions ]===
 static RValue builtin_joystick_exists(VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeBool(false);
@@ -9207,6 +9281,48 @@ static RValue builtin_display_get_gui_width(MAYBE_UNUSED VMContext* ctx, MAYBE_U
 static RValue builtin_display_get_gui_height(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     return RValue_makeInt32(resolveGuiHeight(runner));
+}
+
+static RValue builtinDeviceMouseX(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(0.0);
+    Runner* runner = (Runner*) ctx->runner;
+    // We only support mouse 0 for now (device 0)
+    int32_t device = RValue_toInt32(args[0]);
+    if (device != 0) return RValue_makeReal(0.0);
+    GMLReal mouseRoomX, mouseRoomY;
+    Runner_getMouseRoomPosition(runner, &mouseRoomX, &mouseRoomY);
+    return RValue_makeReal(mouseRoomX);
+}
+
+static RValue builtinDeviceMouseY(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(0.0);
+    Runner* runner = (Runner*) ctx->runner;
+    // We only support mouse 0 for now (device 0)
+    int32_t device = RValue_toInt32(args[0]);
+    if (device != 0) return RValue_makeReal(0.0);
+    GMLReal mouseRoomX, mouseRoomY;
+    Runner_getMouseRoomPosition(runner, &mouseRoomX, &mouseRoomY);
+    return RValue_makeReal(mouseRoomY);
+}
+
+static RValue builtinDeviceMouseXToGui(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(0.0);
+    Runner* runner = (Runner*) ctx->runner;
+    // We only support mouse 0 for now (device 0)
+    int32_t device = RValue_toInt32(args[0]);
+    if (device != 0) return RValue_makeReal(0.0);
+    int32_t guiWidth = resolveGuiWidth(runner);
+    return RValue_makeReal(runner->mouse->normalizedX * guiWidth);
+}
+
+static RValue builtinDeviceMouseYToGui(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(0.0);
+    Runner* runner = (Runner*) ctx->runner;
+    // We only support mouse 0 for now (device 0)
+    int32_t device = RValue_toInt32(args[0]);
+    if (device != 0) return RValue_makeReal(0.0);
+    int32_t guiHeight = resolveGuiHeight(runner);
+    return RValue_makeReal(runner->mouse->normalizedY * guiHeight);
 }
 
 static RValue builtin_display_set_gui_size(VMContext* ctx, RValue* args, int32_t argCount) {
@@ -13180,6 +13296,14 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "keyboard_get_map", builtin_keyboard_get_map);
     VM_registerBuiltin(ctx, "keyboard_unset_map", builtin_keyboard_unset_map);
 
+    // Mouse
+    VM_registerBuiltin(ctx, "mouse_check_button", builtinMouseCheckButton);
+    VM_registerBuiltin(ctx, "mouse_check_button_pressed", builtinMouseCheckButtonPressed);
+    VM_registerBuiltin(ctx, "mouse_check_button_released", builtinMouseCheckButtonReleased);
+    VM_registerBuiltin(ctx, "mouse_clear", builtinMouseClear);
+    VM_registerBuiltin(ctx, "mouse_wheel_up", builtinMouseWheelUp);
+    VM_registerBuiltin(ctx, "mouse_wheel_down", builtinMouseWheelDown);
+
     // Joystick
     if (!isGMS2) {
         VM_registerBuiltin(ctx, "joystick_exists", builtin_joystick_exists);
@@ -13429,6 +13553,13 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "display_set_gui_size", builtin_display_set_gui_size);
     VM_registerBuiltin(ctx, "display_set_gui_maximise", builtin_display_set_gui_maximise);
     VM_registerBuiltin(ctx, "display_set_gui_maximize", builtin_display_set_gui_maximise);
+
+    // Devices
+    VM_registerBuiltin(ctx, "device_mouse_check_button", builtinDeviceMouseCheckButton);
+    VM_registerBuiltin(ctx, "device_mouse_x", builtinDeviceMouseX);
+    VM_registerBuiltin(ctx, "device_mouse_y", builtinDeviceMouseY);
+    VM_registerBuiltin(ctx, "device_mouse_x_to_gui", builtinDeviceMouseXToGui);
+    VM_registerBuiltin(ctx, "device_mouse_y_to_gui", builtinDeviceMouseYToGui);
 
     // Collision
     VM_registerBuiltin(ctx, "place_meeting", builtin_place_meeting);

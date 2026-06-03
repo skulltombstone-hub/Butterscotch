@@ -1235,6 +1235,7 @@ int main(int argc, char* argv[]) {
             // Clear last frame's pressed/released state, then poll new input events
             RunnerKeyboard_beginFrame(runner->keyboard);
             RunnerGamepad_beginFrame(runner->gamepads);
+            RunnerMouse_beginFrame(runner->mouse);
             if (platformHandleEvents()) {
                 shouldWindowClose = true;
                 continue;
@@ -1442,6 +1443,28 @@ int main(int argc, char* argv[]) {
 
                 Runner_drawPre(runner, fbWidth, fbHeight);
                 Runner_computeViewDisplayScale(runner, gameW, gameH, &displayScaleX, &displayScaleY);
+
+                runner->renderGameW = gameW;
+                runner->renderGameH = gameH;
+
+                // Calculate viewport (letterboxing) in screen coordinates for mouse mapping
+                int32_t winW, winH, scaledW, scaledH;
+                platformGetScaledWindowSize(&winW, &winH);
+                if ((gameW * winH) / gameH < winW) {
+                    scaledW = (gameW * winH) / gameH;
+                    scaledH = winH;
+                } else {
+                    scaledW = winW;
+                    scaledH = (gameH * winW) / gameW;
+                }
+                runner->viewportX = (winW - scaledW) / 2;
+                runner->viewportY = (winH - scaledH) / 2;
+                runner->viewportW = scaledW;
+                runner->viewportH = scaledH;
+
+                double mx, my;
+                platformGetMousePos(&mx, &my);
+                Runner_updateMousePosition(runner, winW, winH, mx, my);
 
                 Runner_beginFrame(runner, gameW, gameH, fbWidth, fbHeight);
 
