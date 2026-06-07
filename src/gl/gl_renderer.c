@@ -138,8 +138,8 @@ static GLuint linkProgramCompat(GLuint vertShader, GLuint fragShader, bool *succ
 static void flushBatch(GLRenderer* gl) {
     if (gl->batchCount == 0) return;
 
-    if (gl->base.CurrentShader != -1) {
-        GLuint Shader = gl->GMLShaders[gl->base.CurrentShader];
+    if (gl->base.currentShader != -1) {
+        GLuint Shader = gl->gmlShaders[gl->base.currentShader];
 
         GLint UniformCount;
         glGetProgramiv(Shader, GL_ACTIVE_UNIFORMS, &UniformCount);
@@ -151,7 +151,7 @@ static void flushBatch(GLRenderer* gl) {
 
         if (index != GL_INVALID_INDEX)
         {
-            int32_t slot = gl->Sampler2DLookUpTable[gl->base.CurrentShader][index];
+            int32_t slot = gl->sampler2DLookUpTable[gl->base.currentShader][index];
             glActiveTexture(GL_TEXTURE0 + slot);
                 glBindTexture(GL_TEXTURE_2D, gl->currentTextureId);
         }
@@ -218,7 +218,7 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
     glDeleteShader(vertShader);
     glDeleteShader(fragShader);
     //yeah find the way to get the shaders here!!!
-    gl->GMLShaderCompiled = safeMalloc(dataWin->shdr.count * sizeof(bool));
+    gl->gmlShaderCompiled = safeMalloc(dataWin->shdr.count * sizeof(bool));
     fprintf(stderr, "GL: %u Shaders Found\n", dataWin->shdr.count);
     for (uint32_t i = 0; dataWin->shdr.count > i; i++) {
         Shader* shdr = &dataWin->shdr.shaders[i];
@@ -226,23 +226,23 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
         GLuint vertShaderT = compileShader(GL_VERTEX_SHADER, shdr->glsl_Vertex);
         fprintf(stderr, "GL: Compiling %s Fragment Shader\n", shdr->name); 
         GLuint fragShaderT = compileShader(GL_FRAGMENT_SHADER, shdr->glsl_Fragment);
-        gl->GMLShaderCount++;
-        gl->GMLShaders = safeRealloc(gl->GMLShaders, gl->GMLShaderCount * sizeof(GLuint));
-        gl->Sampler2DLookUpTable = safeRealloc(gl->Sampler2DLookUpTable, gl->GMLShaderCount * sizeof(int32_t*));
+        gl->gmlShaderCount++;
+        gl->gmlShaders = safeRealloc(gl->gmlShaders, gl->gmlShaderCount * sizeof(GLuint));
+        gl->sampler2DLookUpTable = safeRealloc(gl->sampler2DLookUpTable, gl->gmlShaderCount * sizeof(int32_t*));
         bool success;
-        gl->GMLShaders[i] = linkProgramCompat(vertShaderT, fragShaderT, &success, shdr);
-        gl->GMLShaderCompiled[i] = success;
+        gl->gmlShaders[i] = linkProgramCompat(vertShaderT, fragShaderT, &success, shdr);
+        gl->gmlShaderCompiled[i] = success;
         glDeleteShader(vertShaderT);
         glDeleteShader(fragShaderT);
         //Texture Set Stage BS has to be done bruh :(
         int32_t SamplerIndex = 0;
         GLint UniformCount;
-        glGetProgramiv(gl->GMLShaders[i], GL_ACTIVE_UNIFORMS, &UniformCount);
+        glGetProgramiv(gl->gmlShaders[i], GL_ACTIVE_UNIFORMS, &UniformCount);
         
         //I know it looks baddd.... butttt it works
-        gl->Sampler2DLookUpTable[i] = safeMalloc(UniformCount * sizeof(int32_t));
+        gl->sampler2DLookUpTable[i] = safeMalloc(UniformCount * sizeof(int32_t));
         GLint LongestUniformName = 0;
-        glGetProgramiv(gl->GMLShaders[i], GL_ACTIVE_UNIFORM_MAX_LENGTH, &LongestUniformName);
+        glGetProgramiv(gl->gmlShaders[i], GL_ACTIVE_UNIFORM_MAX_LENGTH, &LongestUniformName);
         char *UniformName = safeMalloc(LongestUniformName+1);
 
         for (GLint b = 0; b < UniformCount; b++) {
@@ -250,15 +250,15 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
             GLsizei length = 0;
             GLint size = 0;
             GLenum type = 0;
-            glGetActiveUniform(gl->GMLShaders[i], b, LongestUniformName, &length, &size, &type, UniformName);
+            glGetActiveUniform(gl->gmlShaders[i], b, LongestUniformName, &length, &size, &type, UniformName);
             
-            gl->Sampler2DLookUpTable[i][b] = -1;
+            gl->sampler2DLookUpTable[i][b] = -1;
             if (type == GL_SAMPLER_2D)
             {
-                GLint location = glGetUniformLocation(gl->GMLShaders[i], UniformName);
-                glUseProgram(gl->GMLShaders[i]);
+                GLint location = glGetUniformLocation(gl->gmlShaders[i], UniformName);
+                glUseProgram(gl->gmlShaders[i]);
                 glUniform1i(location, SamplerIndex);
-                gl->Sampler2DLookUpTable[i][b] = SamplerIndex;
+                gl->sampler2DLookUpTable[i][b] = SamplerIndex;
                 SamplerIndex += 1;
             }
 
@@ -369,13 +369,13 @@ static void glGpuResetShader(Renderer* renderer) {
     GLRenderer* gl = (GLRenderer*) renderer;
     flushBatch(gl);
     glUseProgram(gl->shaderProgram);
-    renderer->CurrentShader = -1;
+    renderer->currentShader = -1;
 }
 
 static void glGpuSetShader(Renderer* renderer, int32_t ShaderIndex) {
     GLRenderer* gl = (GLRenderer*) renderer;
     flushBatch(gl);
-    GLuint Shader = gl->GMLShaders[ShaderIndex];
+    GLuint Shader = gl->gmlShaders[ShaderIndex];
     glUseProgram(Shader);
     //Gotta set those built-ins! they ain't gonna set themselves
     GLint gm_Matrices0 = glGetUniformLocation(Shader, "gm_Matrices[0]");
@@ -399,19 +399,19 @@ static void glGpuSetShader(Renderer* renderer, int32_t ShaderIndex) {
 
 
     if (gm_Matrices0 != -1) {
-        glUniformMatrix4fv(gm_Matrices0, 1, GL_FALSE, renderer->GML_Matrices[MATRIX_VIEW].m);
+        glUniformMatrix4fv(gm_Matrices0, 1, GL_FALSE, renderer->gmlMatrices[MATRIX_VIEW].m);
     }
     if (gm_Matrices1 != -1) {
-        glUniformMatrix4fv(gm_Matrices1, 1, GL_FALSE, renderer->GML_Matrices[MATRIX_PROJECTION].m);
+        glUniformMatrix4fv(gm_Matrices1, 1, GL_FALSE, renderer->gmlMatrices[MATRIX_PROJECTION].m);
     }
     if (gm_Matrices2 != -1) {
-        glUniformMatrix4fv(gm_Matrices2, 1, GL_FALSE, renderer->GML_Matrices[MATRIX_WORLD].m);
+        glUniformMatrix4fv(gm_Matrices2, 1, GL_FALSE, renderer->gmlMatrices[MATRIX_WORLD].m);
     }
     if (gm_Matrices3 != -1) {
-        glUniformMatrix4fv(gm_Matrices3, 1, GL_FALSE, renderer->GML_Matrices[MATRIX_WORLD_VIEW].m);
+        glUniformMatrix4fv(gm_Matrices3, 1, GL_FALSE, renderer->gmlMatrices[MATRIX_WORLD_VIEW].m);
     }
     if (gm_Matrices4 != -1) {
-        glUniformMatrix4fv(gm_Matrices4, 1, GL_FALSE, renderer->GML_Matrices[MATRIX_WORLD_VIEW_PROJECTION].m);
+        glUniformMatrix4fv(gm_Matrices4, 1, GL_FALSE, renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION].m);
     }
 
 
@@ -426,14 +426,14 @@ static void glGpuSetShader(Renderer* renderer, int32_t ShaderIndex) {
         glUniform1f(gm_AlphaRefValue, gl->alphaTestRef);
     }
 
-    renderer->CurrentShader = ShaderIndex;
+    renderer->currentShader = ShaderIndex;
 }
 
 static void glShaderSettingsRefresh(Renderer* renderer) {
     GLRenderer* gl = (GLRenderer*) renderer;
     flushBatch(gl);
-    if (renderer->CurrentShader != -1) {
-    glGpuSetShader(renderer, (int32_t) renderer->CurrentShader);
+    if (renderer->currentShader != -1) {
+    glGpuSetShader(renderer, (int32_t) renderer->currentShader);
     } else {
 
     float FogR = (float) BGR_R(gl->fogColor) / 255.0f;
@@ -441,7 +441,7 @@ static void glShaderSettingsRefresh(Renderer* renderer) {
     float FogB = (float) BGR_B(gl->fogColor) / 255.0f;
 
     glUseProgram(gl->shaderProgram);
-    glUniformMatrix4fv(gl->uProjection, 1, GL_FALSE, renderer->GML_Matrices[MATRIX_WORLD_VIEW_PROJECTION].m);
+    glUniformMatrix4fv(gl->uProjection, 1, GL_FALSE, renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION].m);
     glUniform4f(gl->uFogColor, FogR, FoGG, FogB, gl->fogEnable ? 1.0f : 0.0f);
     glUniform1f(gl->uAlphaTestRef, gl->alphaTestRef);
     glUniform1i(gl->uAlphaTestEnabled, gl->alphaTestEnable);   
@@ -524,12 +524,12 @@ static void glBeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int32_
     Matrix4f_viewProjection(&projection, (float) viewX, (float) viewY, (float) viewW, (float) viewH, viewAngle);
     Matrix4f_flipClipY(&projection);
 
-    renderer->GML_Matrices[MATRIX_WORLD_VIEW_PROJECTION] = projection;
+    renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION] = projection;
     glShaderSettingsRefresh(renderer);
     glActiveTexture(GL_TEXTURE1);
 
     glBindVertexArray(gl->vao);
-    renderer->PreviousViewMatrix = projection;
+    renderer->previousViewMatrix = projection;
 
 }
 
@@ -548,7 +548,7 @@ static void glApplyProjection(Renderer* renderer, const Matrix4f* worldToClip) {
     Matrix4f_flipClipY(&projection);
     glUseProgram(gl->shaderProgram);
     glUniformMatrix4fv(gl->uProjection, 1, GL_FALSE, projection.m);
-    renderer->PreviousViewMatrix = projection;
+    renderer->previousViewMatrix = projection;
 }
 
 static void glBeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portX, int32_t portY, int32_t portW, int32_t portH) {
@@ -576,7 +576,7 @@ static void glBeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t p
     Matrix4f projection;
     Matrix4f_guiProjection(&projection, (float) guiW, (float) guiH, (float) portW, (float) portH);
 
-    renderer->GML_Matrices[MATRIX_WORLD_VIEW_PROJECTION] = projection;
+    renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION] = projection;
     glShaderSettingsRefresh(renderer);
     glActiveTexture(GL_TEXTURE1);
 
@@ -1573,7 +1573,7 @@ static bool glSetRenderTarget(Renderer* renderer, int32_t surfaceId) {
     if (surfaceId == renderer->runner->applicationSurfaceId) {
         glViewport(gl->base.CPortX, gl->base.CPortY, gl->base.CPortW, gl->base.CPortH);
         glEnable(GL_SCISSOR_TEST);
-        renderer->GML_Matrices[MATRIX_WORLD_VIEW_PROJECTION] = renderer->PreviousViewMatrix;
+        renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION] = renderer->previousViewMatrix;
         glShaderSettingsRefresh(renderer);
         return true;
     }
@@ -1584,7 +1584,7 @@ static bool glSetRenderTarget(Renderer* renderer, int32_t surfaceId) {
     Matrix4f_ortho(&projection, 0.0f, (float) gl->surfaceWidth[surfaceId], 0.0f, (float) gl->surfaceHeight[surfaceId], -1.0f, 1.0f);
     glViewport(0, 0, gl->surfaceWidth[surfaceId], gl->surfaceHeight[surfaceId]);
     glDisable(GL_SCISSOR_TEST);
-    renderer->GML_Matrices[MATRIX_WORLD_VIEW_PROJECTION] = projection;
+    renderer->gmlMatrices[MATRIX_WORLD_VIEW_PROJECTION] = projection;
     glShaderSettingsRefresh(renderer);
 
 
@@ -1842,14 +1842,14 @@ static void glGpuSetFog(Renderer* renderer, bool enable, uint32_t color) {
 static int32_t glShaderGetUniform(Renderer* renderer, int32_t shaderIndex, char* uniform) {
     GLRenderer* gl = (GLRenderer*) renderer;
     flushBatch(gl);
-    GLuint Shader = gl->GMLShaders[shaderIndex];
+    GLuint Shader = gl->gmlShaders[shaderIndex];
 
     return glGetUniformLocation(Shader, uniform);   
 }
 
 static int32_t glShaderGetSamplerIndex(Renderer* renderer, int32_t shaderIndex, char* uniform) {
     GLRenderer* gl = (GLRenderer*) renderer;
-    GLuint Shader = gl->GMLShaders[shaderIndex];
+    GLuint Shader = gl->gmlShaders[shaderIndex];
 
     GLint UniformCount;
     glGetProgramiv(Shader, GL_ACTIVE_UNIFORMS, &UniformCount);
@@ -1864,15 +1864,15 @@ static int32_t glShaderGetSamplerIndex(Renderer* renderer, int32_t shaderIndex, 
         return -1;
     }
 
-    return gl->Sampler2DLookUpTable[shaderIndex][index]; 
+    return gl->sampler2DLookUpTable[shaderIndex][index];
 }
 
 static void glShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t count, float value1, float value2, float value3, float value4) {
     GLRenderer* gl = (GLRenderer*) renderer;
     flushBatch(gl);
     int32_t RealCount = count;
-    if (renderer->CurrentShader != -1) {
-    GLuint Shader = gl->GMLShaders[renderer->CurrentShader];
+    if (renderer->currentShader != -1) {
+    GLuint Shader = gl->gmlShaders[renderer->currentShader];
 
         GLint UniformCount;
         glGetProgramiv(Shader, GL_ACTIVE_UNIFORMS, &UniformCount);
@@ -1979,7 +1979,7 @@ static bool glShaderIsCompiled(Renderer* renderer, int32_t shaderID) {
     GLRenderer* gl = (GLRenderer*) renderer;
     DataWin* dw = gl->base.dataWin;
     if (0 > shaderID || shaderID >= dw->shdr.count) return false;
-    return gl->GMLShaderCompiled[shaderID];
+    return gl->gmlShaderCompiled[shaderID];
 }
 
 static bool glShadersSupported(Renderer* renderer) {
@@ -2058,6 +2058,6 @@ Renderer* GLRenderer_create(void) {
     gl->base.drawHalign = 0;
     gl->base.drawValign = 0;
     gl->base.circlePrecision = 24;
-    gl->base.CurrentShader = -1;
+    gl->base.currentShader = -1;
     return (Renderer*) gl;
 }

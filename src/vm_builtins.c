@@ -13034,7 +13034,7 @@ static RValue builtin_shader_reset(VMContext* ctx, MAYBE_UNUSED RValue* args, MA
 static RValue builtin_shader_current(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
 
     if (ctx->runner->renderer != nullptr) {
-    return RValue_makeReal(ctx->runner->renderer->CurrentShader);
+    return RValue_makeReal(ctx->runner->renderer->currentShader);
     }
     return RValue_makeReal(-1);
 }

@@ -178,7 +178,7 @@ static void glBeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int32_
     glLoadIdentity();
     glActiveTexture(GL_TEXTURE0);
 
-    renderer->PreviousViewMatrix = projection;
+    renderer->previousViewMatrix = projection;
 }
 
 static void glEndView(MAYBE_UNUSED Renderer* renderer) {
@@ -193,7 +193,7 @@ static void glApplyProjection(Renderer* renderer, const Matrix4f* worldToClip) {
     glLoadMatrixf(projection.m);
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    renderer->PreviousViewMatrix = projection;
+    renderer->previousViewMatrix = projection;
 }
 
 static void glBeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portX, int32_t portY, int32_t portW, int32_t portH) {
@@ -1488,7 +1488,7 @@ static bool glLegacySetRenderTarget(Renderer* renderer, int32_t surfaceId) {
     if (surfaceId == renderer->runner->applicationSurfaceId) {
         glViewport(gl->base.CPortX, gl->base.CPortY, gl->base.CPortW, gl->base.CPortH);
         glMatrixMode(GL_PROJECTION);
-        glLoadMatrixf(renderer->PreviousViewMatrix.m);
+        glLoadMatrixf(renderer->previousViewMatrix.m);
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
         glEnable(GL_SCISSOR_TEST);

@@ -147,14 +147,14 @@ struct Renderer {
     int32_t drawValign;  // 0=top, 1=middle, 2=bottom
     int32_t circlePrecision; // segments used by draw_circle/draw_ellipse, clamped to [4, 64] and rounded down to multiple of 4. Default 24.
     //It's The Simplest Way I Found To Restore Previous Thingies For Rendering SORRY
-    Matrix4f PreviousViewMatrix;
+    Matrix4f previousViewMatrix;
     int32_t CPortX;
     int32_t CPortY;
     int32_t CPortW;
     int32_t CPortH;
     Runner* runner;
-    Matrix4f GML_Matrices[MATRICES_MAX];
-    int32_t CurrentShader;
+    Matrix4f gmlMatrices[MATRICES_MAX];
+    int32_t currentShader;
 };
 
 // ===[ Shared Helpers (platform-agnostic) ]===
