@@ -11667,27 +11667,61 @@ static RuntimeBackgroundElement* findBackgroundElement(Runner* runner, int32_t e
     return el->backgroundElement;
 }
 
+// Resolves a background element id to a parsed Background layer's data.
+static RoomLayerBackgroundData* findParsedBackgroundData(Runner* runner, int32_t elementId) {
+    RuntimeLayerElement* el = Runner_findLayerElementById(runner, elementId, nullptr);
+    if (el == nullptr || el->type != RuntimeLayerElementType_Background)
+        return nullptr;
+    return el->parsedBackgroundData;
+}
+
+// Resolves a tilemap element id to its tiles data + owning runtime layer.
+static RoomLayerTilesData* findTilemapData(Runner* runner, int32_t elementId, RuntimeLayer** outLayer) {
+    if (outLayer != nullptr) *outLayer = nullptr;
+    RuntimeLayer* owner = nullptr;
+    RuntimeLayerElement* el = Runner_findLayerElementById(runner, elementId, &owner);
+    if (el == nullptr || el->type != RuntimeLayerElementType_Tilemap)
+        return nullptr;
+    if (outLayer != nullptr) *outLayer = owner;
+    return el->tilemapData;
+}
+
 static RValue builtin_layer_background_visible(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
-    RuntimeBackgroundElement* bg = findBackgroundElement(runner, RValue_toInt32(args[0]));
+    int32_t id = RValue_toInt32(args[0]);
+    bool visible = RValue_toBool(args[1]);
+    RuntimeBackgroundElement* bg = findBackgroundElement(runner, id);
     if (bg != nullptr)
-        bg->visible = RValue_toBool(args[1]);
+        bg->visible = visible;
+    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, id);
+    if (parsed != nullptr)
+        parsed->visible = visible;
     return RValue_makeUndefined();
 }
 
 static RValue builtin_layer_background_htiled(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
-    RuntimeBackgroundElement* bg = findBackgroundElement(runner, RValue_toInt32(args[0]));
+    int32_t id = RValue_toInt32(args[0]);
+    bool tiled = RValue_toBool(args[1]);
+    RuntimeBackgroundElement* bg = findBackgroundElement(runner, id);
     if (bg != nullptr)
-        bg->htiled = RValue_toBool(args[1]);
+        bg->htiled = tiled;
+    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, id);
+    if (parsed != nullptr)
+        parsed->hTiled = tiled;
     return RValue_makeUndefined();
 }
 
 static RValue builtin_layer_background_vtiled(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
-    RuntimeBackgroundElement* bg = findBackgroundElement(runner, RValue_toInt32(args[0]));
+    int32_t id = RValue_toInt32(args[0]);
+    bool tiled = RValue_toBool(args[1]);
+    RuntimeBackgroundElement* bg = findBackgroundElement(runner, id);
     if (bg != nullptr)
-        bg->vtiled = RValue_toBool(args[1]);
+        bg->vtiled = tiled;
+    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, id);
+    if (parsed != nullptr)
+        parsed->vTiled = tiled;
     return RValue_makeUndefined();
 }
 
@@ -11709,25 +11743,43 @@ static RValue builtin_layer_background_yscale(VMContext* ctx, RValue* args, MAYB
 
 static RValue builtin_layer_background_stretch(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
-    RuntimeBackgroundElement* bg = findBackgroundElement(runner, RValue_toInt32(args[0]));
+    int32_t id = RValue_toInt32(args[0]);
+    bool stretch = RValue_toBool(args[1]);
+    RuntimeBackgroundElement* bg = findBackgroundElement(runner, id);
     if (bg != nullptr)
-        bg->stretch = RValue_toBool(args[1]);
+        bg->stretch = stretch;
+    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, id);
+    if (parsed != nullptr)
+        parsed->stretch = stretch;
     return RValue_makeUndefined();
 }
 
 static RValue builtin_layer_background_blend(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
-    RuntimeBackgroundElement* bg = findBackgroundElement(runner, RValue_toInt32(args[0]));
+    int32_t id = RValue_toInt32(args[0]);
+    uint32_t blend = (uint32_t) RValue_toInt32(args[1]) & 0x00FFFFFF;
+    RuntimeBackgroundElement* bg = findBackgroundElement(runner, id);
     if (bg != nullptr)
-        bg->blend = (uint32_t) RValue_toInt32(args[1]) & 0x00FFFFFF;
+        bg->blend = blend;
+    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, id);
+    if (parsed != nullptr)
+        parsed->color = (parsed->color & 0xFF000000u) | blend;
     return RValue_makeUndefined();
 }
 
 static RValue builtin_layer_background_alpha(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
-    RuntimeBackgroundElement* bg = findBackgroundElement(runner, RValue_toInt32(args[0]));
+    int32_t id = RValue_toInt32(args[0]);
+    float alpha = (float) RValue_toReal(args[1]);
+    RuntimeBackgroundElement* bg = findBackgroundElement(runner, id);
     if (bg != nullptr)
-        bg->alpha = (float) RValue_toReal(args[1]);
+        bg->alpha = alpha;
+    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, id);
+    if (parsed != nullptr) {
+        float clamped = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha);
+        uint32_t alphaByte = (uint32_t) (clamped * 255.0f);
+        parsed->color = (parsed->color & 0x00FFFFFFu) | (alphaByte << 24);
+    }
     return RValue_makeUndefined();
 }
 
@@ -11737,16 +11789,11 @@ static RValue builtin_layer_background_sprite(VMContext* ctx, RValue* args, MAYB
     int32_t spriteIndex = RValue_toInt32(args[1]);
 
     RuntimeBackgroundElement* bg = findBackgroundElement(runner, elementId);
-    if (bg != nullptr) {
+    if (bg != nullptr)
         bg->spriteIndex = spriteIndex;
-        return RValue_makeUndefined();
-    }
-
-    RoomLayer* roomLayer = Runner_findRoomLayerById(runner->currentRoom, elementId);
-    if (roomLayer != nullptr && roomLayer->type == RoomLayerType_Background && roomLayer->backgroundData != nullptr) {
-        roomLayer->backgroundData->spriteIndex = spriteIndex;
-    }
-
+    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, elementId);
+    if (parsed != nullptr)
+        parsed->spriteIndex = spriteIndex;
     return RValue_makeUndefined();
 }
 
@@ -11764,11 +11811,6 @@ static RValue builtin_layer_background_get_id(VMContext* ctx, RValue* args, MAYB
         }
     }
 
-    RoomLayer* roomLayer = Runner_findRoomLayerById(runner->currentRoom, layerId);
-    if (roomLayer != nullptr && roomLayer->type == RoomLayerType_Background) {
-        return RValue_makeReal((GMLReal) layerId);
-    }
-
     return RValue_makeReal(-1.0);
 }
 
@@ -11778,15 +11820,11 @@ static RValue builtin_layer_background_index(VMContext* ctx, RValue* args, MAYBE
     int32_t index = RValue_toInt32(args[1]);
 
     RuntimeBackgroundElement* bg = findBackgroundElement(runner, background_element_id);
-    if (bg != nullptr) {
+    if (bg != nullptr)
         bg->imageIndex = index;
-    }
-
-    RoomLayer* roomLayer = Runner_findRoomLayerById(runner->currentRoom, background_element_id);
-    if (roomLayer != nullptr && roomLayer->type == RoomLayerType_Background && roomLayer->backgroundData != nullptr) {
-        roomLayer->backgroundData->imageIndex = index;
-    }
-
+    RoomLayerBackgroundData* parsed = findParsedBackgroundData(runner, background_element_id);
+    if (parsed != nullptr)
+        parsed->imageIndex = index;
     return RValue_makeUndefined();
 }
 
@@ -11985,6 +12023,11 @@ static RValue builtin_layer_background_destroy(VMContext* ctx, RValue* args, MAY
         free(el->backgroundElement);
         el->backgroundElement = nullptr;
     }
+    // The renderer draws parsed Background layers from the parsed data, so destroying the element must hide it there.
+    if (el->parsedBackgroundData != nullptr) {
+        el->parsedBackgroundData->visible = false;
+        el->parsedBackgroundData = nullptr;
+    }
 
     // Remove the element from the owning layer's element array to keep lookup + iteration tidy.
     size_t count = arrlenu(owningLayer->elements);
@@ -12006,9 +12049,14 @@ static RValue builtin_layer_tilemap_get_id(VMContext* ctx, RValue* args, MAYBE_U
     int32_t layerId = resolveLayerIdArg(runner, args[0]);
     if (0 > layerId) return RValue_makeReal(-1.0);
 
-    RoomLayer* foundLayer = Runner_findRoomLayerById(runner->currentRoom, layerId);
-    if (foundLayer != nullptr && foundLayer->type == RoomLayerType_Tiles) {
-        return RValue_makeReal(layerId);
+    RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, layerId);
+    if (runtimeLayer != nullptr) {
+        size_t count = arrlenu(runtimeLayer->elements);
+        repeat(count, i) {
+            if (runtimeLayer->elements[i].type == RuntimeLayerElementType_Tilemap) {
+                return RValue_makeReal((GMLReal) runtimeLayer->elements[i].id);
+            }
+        }
     }
 
     return RValue_makeReal(-1.0);
@@ -12017,29 +12065,25 @@ static RValue builtin_layer_tilemap_get_id(VMContext* ctx, RValue* args, MAYBE_U
 static RValue builtin_draw_tilemap(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     if (3 > argCount) return RValue_makeUndefined();
     Runner* runner = ctx->runner;
-    int32_t tilemap_layer_id = RValue_toInt32(args[0]);
     GMLReal x = RValue_toReal(args[1]);
     GMLReal y = RValue_toReal(args[2]);
 
-    RoomLayer* foundLayer = Runner_findRoomLayerById(runner->currentRoom, tilemap_layer_id);
-    if (foundLayer != nullptr && foundLayer->type == RoomLayerType_Tiles) {
-        Runner_drawTileLayer(runner, foundLayer->tilesData, x, y);
+    RoomLayerTilesData* tilesData = findTilemapData(runner, RValue_toInt32(args[0]), nullptr);
+    if (tilesData != nullptr) {
+        Runner_drawTileLayer(runner, tilesData, x, y);
     }
 
     return RValue_makeUndefined();
 }
 
-// tilemap_x / tilemap_y set the runtime layer's draw offset for the tile layer identified by the tilemap element id.
+// tilemap_x / tilemap_y set the owning runtime layer's draw offset for the tile layer identified by the tilemap element id.
 static RValue builtin_tilemap_x(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     if (2 > argCount) return RValue_makeUndefined();
     Runner* runner = ctx->runner;
-    int32_t tilemapElementId = RValue_toInt32(args[0]);
     GMLReal x = RValue_toReal(args[1]);
 
-    RoomLayer* foundLayer = Runner_findRoomLayerById(runner->currentRoom, tilemapElementId);
-    if (foundLayer == nullptr || foundLayer->type != RoomLayerType_Tiles) return RValue_makeUndefined();
-
-    RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, tilemapElementId);
+    RuntimeLayer* runtimeLayer = nullptr;
+    if (findTilemapData(runner, RValue_toInt32(args[0]), &runtimeLayer) == nullptr) return RValue_makeUndefined();
     if (runtimeLayer != nullptr) runtimeLayer->xOffset = (float) x;
     return RValue_makeUndefined();
 }
@@ -12047,13 +12091,10 @@ static RValue builtin_tilemap_x(VMContext* ctx, RValue* args, MAYBE_UNUSED int32
 static RValue builtin_tilemap_y(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     if (2 > argCount) return RValue_makeUndefined();
     Runner* runner = ctx->runner;
-    int32_t tilemapElementId = RValue_toInt32(args[0]);
     GMLReal y = RValue_toReal(args[1]);
 
-    RoomLayer* foundLayer = Runner_findRoomLayerById(runner->currentRoom, tilemapElementId);
-    if (foundLayer == nullptr || foundLayer->type != RoomLayerType_Tiles) return RValue_makeUndefined();
-
-    RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, tilemapElementId);
+    RuntimeLayer* runtimeLayer = nullptr;
+    if (findTilemapData(runner, RValue_toInt32(args[0]), &runtimeLayer) == nullptr) return RValue_makeUndefined();
     if (runtimeLayer != nullptr) runtimeLayer->yOffset = (float) y;
     return RValue_makeUndefined();
 }
@@ -12061,26 +12102,20 @@ static RValue builtin_tilemap_y(VMContext* ctx, RValue* args, MAYBE_UNUSED int32
 static RValue builtin_tilemap_get_x(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     if (1 > argCount) return RValue_makeReal(-1.0);
     Runner* runner = ctx->runner;
-    int32_t tilemapElementId = RValue_toInt32(args[0]);
 
-    RoomLayer* foundLayer = Runner_findRoomLayerById(runner->currentRoom, tilemapElementId);
-    if (foundLayer == nullptr || foundLayer->type != RoomLayerType_Tiles) return RValue_makeReal(-1.0);
-
-    RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, tilemapElementId);
-    if (runtimeLayer == nullptr) return RValue_makeReal(-1.0);
+    RuntimeLayer* runtimeLayer = nullptr;
+    if (findTilemapData(runner, RValue_toInt32(args[0]), &runtimeLayer) == nullptr || runtimeLayer == nullptr)
+        return RValue_makeReal(-1.0);
     return RValue_makeReal((GMLReal) runtimeLayer->xOffset);
 }
 
 static RValue builtin_tilemap_get_y(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     if (1 > argCount) return RValue_makeReal(-1.0);
     Runner* runner = ctx->runner;
-    int32_t tilemapElementId = RValue_toInt32(args[0]);
 
-    RoomLayer* foundLayer = Runner_findRoomLayerById(runner->currentRoom, tilemapElementId);
-    if (foundLayer == nullptr || foundLayer->type != RoomLayerType_Tiles) return RValue_makeReal(-1.0);
-
-    RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, tilemapElementId);
-    if (runtimeLayer == nullptr) return RValue_makeReal(-1.0);
+    RuntimeLayer* runtimeLayer = nullptr;
+    if (findTilemapData(runner, RValue_toInt32(args[0]), &runtimeLayer) == nullptr || runtimeLayer == nullptr)
+        return RValue_makeReal(-1.0);
     return RValue_makeReal((GMLReal) runtimeLayer->yOffset);
 }
 
@@ -12089,12 +12124,10 @@ static RValue builtin_tilemap_get_y(VMContext* ctx, RValue* args, MAYBE_UNUSED i
 static RValue builtin_tilemap_get_at_pixel(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     if (3 > argCount) return RValue_makeReal(-1.0);
     Runner* runner = ctx->runner;
-    int32_t tilemapElementId = RValue_toInt32(args[0]);
+    RuntimeLayer* runtimeLayer = nullptr;
+    RoomLayerTilesData* data = findTilemapData(runner, RValue_toInt32(args[0]), &runtimeLayer);
+    requireNotNullMessage(runtimeLayer, "Missing Runtime Layer! Bug?");
 
-    RoomLayer* foundLayer = Runner_findRoomLayerById(runner->currentRoom, tilemapElementId);
-    if (foundLayer == nullptr || foundLayer->type != RoomLayerType_Tiles) return RValue_makeReal(-1.0);
-
-    RoomLayerTilesData* data = foundLayer->tilesData;
     if (data == nullptr || data->tileData == nullptr) return RValue_makeReal(-1.0);
     if (0 > data->backgroundIndex) return RValue_makeReal(-1.0);
 
@@ -12106,8 +12139,6 @@ static RValue builtin_tilemap_get_at_pixel(VMContext* ctx, RValue* args, MAYBE_U
     uint32_t tileH = tileset->gms2TileHeight;
     if (tileW == 0 || tileH == 0) return RValue_makeReal(-1.0);
 
-    RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, tilemapElementId);
-    requireNotNullMessage(runtimeLayer, "Missing Runtime Layer! Bug?");
     float offsetX = runtimeLayer->xOffset; // GameMaker-HTML5: m_x
     float offsetY = runtimeLayer->yOffset; // GameMaker-HTML5: m_y
 

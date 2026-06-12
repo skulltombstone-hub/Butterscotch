@@ -214,6 +214,7 @@ typedef enum {
     RuntimeLayerElementType_Background = 1,
     RuntimeLayerElementType_Instance = 2,
     RuntimeLayerElementType_Sprite = 4,
+    RuntimeLayerElementType_Tilemap = 5,
     RuntimeLayerElementType_Tile = 7,
 } RuntimeLayerElementType;
 
@@ -223,9 +224,11 @@ typedef struct {
     bool visible;
     float alpha; // GameMaker-HTML5's m_imageAlpha
     uint32_t blend; // GameMaker-HTML5's m_imageBlend
-    RuntimeBackgroundElement* backgroundElement; // owned; nullptr if type != Background
+    RuntimeBackgroundElement* backgroundElement; // owned; only set for Background elements created via layer_background_create
+    RoomLayerBackgroundData* parsedBackgroundData; // borrowed, points into the parsed RoomLayer; only set for a parsed Background layer's element
     RuntimeSpriteElement* spriteElement; // owned; nullptr if type != Sprite
     RoomTile* tileElement; // borrowed, points into RoomLayerAssetsData->legacyTiles; nullptr if type != Tile
+    RoomLayerTilesData* tilemapData; // borrowed, points into the parsed RoomLayer; nullptr if type != Tilemap
     int32_t instanceId; // only valid if type == Instance; the instance may have died since, so callers must check liveness
 } RuntimeLayerElement;
 

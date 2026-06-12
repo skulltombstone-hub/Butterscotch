@@ -895,6 +895,7 @@ void Runner_draw(Runner* runner) {
                 float roomW = (float) runner->currentRoom->width;
                 float roomH = (float) runner->currentRoom->height;
                 RoomLayerBackgroundData* data = parsedLayer->backgroundData;
+                if (!data->visible) continue;
 
                 if (0 > data->spriteIndex) {
                     // Spriteless background layer: draw as a colored rectangle with the layer's color/alpha
@@ -1356,9 +1357,31 @@ static void initRoom(Runner* runner, int32_t roomIndex) {
     // Watermark: ensure runtime-allocated IDs (layers + elements) stay above parsed IDs.
     if (maxLayerId >= runner->nextLayerId) runner->nextLayerId = maxLayerId + 1;
 
-    // Populate runtime sprite elements for Assets layers, so they can be queried and destroyed via layer_sprite_get_sprite/layer_sprite_destroy
+    // Populate runtime elements for parsed layers.
     repeat(room->layerCount, i) {
         RoomLayer* layerSource = &room->layers[i];
+        if (layerSource->type == RoomLayerType_Background && layerSource->backgroundData != nullptr) {
+            RuntimeLayerElement el = {0};
+            el.id = Runner_getNextLayerId(runner);
+            el.type = RuntimeLayerElementType_Background;
+            el.visible = true;
+            el.alpha = (float) BGR_A(layerSource->backgroundData->color) / 255.0f;
+            el.blend = layerSource->backgroundData->color & 0xFFFFFFu;
+            el.parsedBackgroundData = layerSource->backgroundData;
+            arrput(runner->runtimeLayers[i].elements, el);
+            continue;
+        }
+        if (layerSource->type == RoomLayerType_Tiles && layerSource->tilesData != nullptr) {
+            RuntimeLayerElement el = {0};
+            el.id = Runner_getNextLayerId(runner);
+            el.type = RuntimeLayerElementType_Tilemap;
+            el.visible = true;
+            el.alpha = 1.0f;
+            el.blend = 0xFFFFFFu;
+            el.tilemapData = layerSource->tilesData;
+            arrput(runner->runtimeLayers[i].elements, el);
+            continue;
+        }
         if (layerSource->type != RoomLayerType_Assets || layerSource->assetsData == nullptr) continue;
         RoomLayerAssetsData* assets = layerSource->assetsData;
         RuntimeLayer* runtimeLayer = &runner->runtimeLayers[i];
