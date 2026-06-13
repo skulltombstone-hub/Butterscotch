@@ -513,31 +513,42 @@ void Runner_drawBackgrounds(Runner* runner, bool foreground) {
 
 // ===[ Draw ]===
 
-static int compareDrawableDepth(const void* a, const void* b) {
-    const Drawable* da = (const Drawable*) a;
-    const Drawable* db = (const Drawable*) b;
-    // Higher depth draws first (behind), lower depth draws last (in front)
-    if (da->depth > db->depth) return -1;
-    if (db->depth > da->depth) return 1;
-    // At same depth, tiles before instances (tiles are background)
-    if (da->type < db->type) return -1;
-    if (db->type < da->type) return 1;
-    // At same depth and type, preserve original room order (higher index draws later = in front)
-    if (da->type == DRAWABLE_TILE) {
-        if (db->tileIndex > da->tileIndex) return -1;
-        if (da->tileIndex > db->tileIndex) return 1;
+typedef struct {
+    int32_t depth;
+    int32_t type;
+    int32_t order;
+} DrawKey;
+
+static DrawKey drawableKey(const Drawable* d) {
+    DrawKey k = { d->depth, d->type, 0 };
+    switch (d->type) {
+        case DRAWABLE_TILE: k.order = d->tileIndex; break;
+        case DRAWABLE_INSTANCE: k.order = (int32_t) d->instance->instanceId;  break;
+        case DRAWABLE_LAYER: k.order = d->runtimeLayerId; break;
     }
-    // At same depth, newer instances (higher instanceId) draw FIRST (behind), older draw LAST (front).
-    if (da->type == DRAWABLE_INSTANCE && db->type == DRAWABLE_INSTANCE) {
-        if (db->instance->instanceId > da->instance->instanceId) return 1;
-        if (da->instance->instanceId > db->instance->instanceId) return -1;
-    }
-    // At same depth, layers with higher ID draw FIRST (behind).
-    if (da->type == DRAWABLE_LAYER && db->type == DRAWABLE_LAYER) {
-        if (db->runtimeLayerId > da->runtimeLayerId) return 1;
-        if (da->runtimeLayerId > db->runtimeLayerId) return -1;
-    }
-    return 0;
+    return k;
+}
+
+static int compareDrawKeys(const DrawKey* a, const DrawKey* b) {
+    if (a->depth != b->depth)
+        return a->depth > b->depth ? -1 : 1; // higher depth first
+
+    if (a->type  != b->type)
+        return a->type  < b->type  ? -1 : 1; // tiles before instances
+
+    if (a->type == DRAWABLE_TILE)
+        return (a->order > b->order) - (a->order < b->order); // tiles: higher index later
+
+    return (a->order < b->order) - (a->order > b->order); // instance/layer: higher first
+}
+
+static int compareDrawables(const void* a, const void* b) {
+    Drawable* drawableA = (Drawable*) a;
+    Drawable* drawableB = (Drawable*) b;
+    DrawKey drawKeyA = drawableKey(drawableA);
+    DrawKey drawKeyB = drawableKey(drawableB);
+
+    return compareDrawKeys(&drawKeyA, &drawKeyB);
 }
 
 static void fireDrawSubtype(Runner* runner, Drawable* drawables, int32_t drawableCount, int32_t subtype) {
@@ -623,7 +634,10 @@ void Runner_drawTileLayer(Runner* runner, RoomLayerTilesData* data, float layerO
 // Returns true if "drawables" is already in compareDrawableDepth order. Used by the sort-dirty path to skip qsort when small depth perturbations didn't actually cross any neighbor.
 static bool isDrawableArraySorted(Drawable* drawables, int32_t count) {
     for (int32_t i = 1; count > i; i++) {
-        if (compareDrawableDepth(&drawables[i - 1], &drawables[i]) > 0) return false;
+        DrawKey drawKey1 = drawableKey(&drawables[i - 1]);
+        DrawKey drawKey2 = drawableKey(&drawables[i]);
+
+        if (compareDrawKeys(&drawKey1, &drawKey2) > 0) return false;
     }
     return true;
 }
@@ -687,7 +701,7 @@ static void rebuildDrawableCacheIfDirty(Runner* runner) {
 
         int32_t count = (int32_t) arrlen(runner->cachedDrawables);
         if (count > 1) {
-            qsort(runner->cachedDrawables, count, sizeof(Drawable), compareDrawableDepth);
+            qsort(runner->cachedDrawables, count, sizeof(Drawable), compareDrawables);
         }
         runner->drawableListStructureDirty = false;
         runner->drawableListSortDirty = false;
@@ -698,7 +712,7 @@ static void rebuildDrawableCacheIfDirty(Runner* runner) {
         int32_t count = (int32_t) arrlen(runner->cachedDrawables);
         refreshDrawableDepths(runner, runner->cachedDrawables, count);
         if (count > 1 && !isDrawableArraySorted(runner->cachedDrawables, count)) {
-            qsort(runner->cachedDrawables, count, sizeof(Drawable), compareDrawableDepth);
+            qsort(runner->cachedDrawables, count, sizeof(Drawable), compareDrawables);
         }
         runner->drawableListSortDirty = false;
     }
@@ -709,17 +723,63 @@ void Runner_draw(Runner* runner) {
 
     rebuildDrawableCacheIfDirty(runner);
     int32_t drawableCount = (int32_t) arrlen(runner->cachedDrawables);
-    Drawable* drawables = runner->cachedDrawables;
 
     // Draw non-foreground backgrounds (behind everything)
     if (!DataWin_isVersionAtLeast(runner->dataWin, 2, 0, 0, 0))
         Runner_drawBackgrounds(runner, false);
 
-    fireDrawSubtype(runner, drawables, drawableCount, DRAW_BEGIN);
+    fireDrawSubtype(runner, runner->cachedDrawables, drawableCount, DRAW_BEGIN);
 
     // Draw interleaved tiles and instances
-    repeat(drawableCount, i) {
-        Drawable* d = &drawables[i];
+    int32_t i = 0;
+    DrawKey lastProcessedDrawKey;
+
+    while (true) {
+        if (runner->drawableListSortDirty || runner->drawableListStructureDirty) {
+            rebuildDrawableCacheIfDirty(runner);
+
+            if (i != 0) {
+                // Something created things during draw events! Figure out the new cursor position...
+                // lastProcessedDrawKey WILL already be set here, because this code will ONLY execute if we have at least processed at least ONE drawable
+                bool foundSomething = false;
+
+                repeat(arrlen(runner->cachedDrawables), j) {
+                    Drawable* drawable = &runner->cachedDrawables[j];
+
+                    DrawKey drawKey = drawableKey(drawable);
+
+                    int result = compareDrawKeys(&drawKey, &lastProcessedDrawKey);
+
+                    if (result == 0) {
+                        // Found exact match
+                        i = (int32_t) j + 1; // Skip one because we DON'T WANT to redraw something that was already drawn
+                        foundSomething = true;
+                        break;
+                    }
+
+                    if (result == 1) {
+                        // New key order is HIGHER than the current one, so we want to continue processing from here
+                        i = (int32_t) j;
+                        foundSomething = true;
+                        break;
+                    }
+                }
+
+                if (!foundSomething) {
+                    // We haven't found anything, we don't have anything more to draw, so bail!
+                    break;
+                }
+            }
+
+            drawableCount = arrlen(runner->cachedDrawables);
+        }
+
+        if (i >= drawableCount)
+            break;
+
+        Drawable* d = &runner->cachedDrawables[i++];
+        lastProcessedDrawKey = drawableKey(d);
+
         if (d->type == DRAWABLE_TILE) {
             if (runner->renderer != nullptr) {
                 RoomTile* tile = &room->tiles[d->tileIndex];
@@ -930,7 +990,7 @@ void Runner_draw(Runner* runner) {
         }
     }
 
-    fireDrawSubtype(runner, drawables, drawableCount, DRAW_END);
+    fireDrawSubtype(runner, runner->cachedDrawables, drawableCount, DRAW_END);
 
     // Draw foreground backgrounds (in front of instances, behind GUI)
     Runner_drawBackgrounds(runner, true);
