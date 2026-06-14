@@ -41,4 +41,4 @@ typedef struct {
     AudioStreamEntry streams[MAX_AUDIO_STREAMS];
 } MaAudioSystem;
 
-MaAudioSystem* MaAudioSystem_create(void);
+MaAudioSystem* MaAudioSystem_create(DataWin* dataWin);

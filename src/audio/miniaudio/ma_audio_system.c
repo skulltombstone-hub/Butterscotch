@@ -679,15 +679,26 @@ static void maSetChannelCount(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int3
 }
 
 static void maGroupLoad(AudioSystem* audio, int32_t groupIndex) {
-    if (groupIndex > 0) {
-        int sz = snprintf(nullptr, 0, "audiogroup%d.dat", groupIndex);
-        char buf[sz + 1];
-        snprintf(buf, sizeof(buf), "audiogroup%d.dat", groupIndex);
+    if (groupIndex > 0 && audio->dw->agrp.count > (uint32_t) groupIndex) {
+        AudioGroup* audioGroupEntry = &audio->dw->agrp.audioGroups[groupIndex];
+
+        char* buf;
+        if (audioGroupEntry->path == nullptr) {
+            int sz = snprintf(nullptr, 0, "audiogroup%d.dat", groupIndex);
+            buf = safeMalloc(sz + 1);
+            snprintf(buf, sz + 1, "audiogroup%d.dat", groupIndex);
+        } else {
+            size_t length = strlen(audioGroupEntry->path);
+            buf = safeMalloc(length + 1);
+            memcpy(buf, audioGroupEntry->path, length);
+            buf[length] = '\0';
+        }
 
         // The original runner does not care if the file doesn't exist (this may happen if someone uses "audio_group_load" on a non-existent group)
         FileSystem* fileSystem = ((MaAudioSystem*)audio)->fileSystem;
         if (!fileSystem->vtable->fileExists(fileSystem, buf)) {
-            fprintf(stderr, "Audio: Wanted to load Audio Group %d, but Audio Group %d does not exist!\n", groupIndex, groupIndex);
+            fprintf(stderr, "Audio: Wanted to load Audio Group %d, but Audio Group %d does not exist in the file system!\n", groupIndex, groupIndex);
+            free(buf);
             return;
         }
 
@@ -695,6 +706,9 @@ static void maGroupLoad(AudioSystem* audio, int32_t groupIndex) {
         options.parseAudo = true;
         DataWin *audioGroup = DataWin_parse(((MaAudioSystem*)audio)->fileSystem->vtable->resolvePath(((MaAudioSystem*)audio)->fileSystem, buf), options);
         arrput(audio->audioGroups, audioGroup);
+        free(buf);
+    } else {
+        fprintf(stderr, "Audio: Wanted to load Audio Group %d, but Audio Group %d does not exist in the AGPR!\n", groupIndex, groupIndex);
     }
 }
 
@@ -773,8 +787,9 @@ static AudioSystemVtable maAudioSystemVtable;
 
 // ===[ Lifecycle ]===
 
-MaAudioSystem* MaAudioSystem_create(void) {
+MaAudioSystem* MaAudioSystem_create(DataWin* dataWin) {
     MaAudioSystem* ma = safeCalloc(1, sizeof(MaAudioSystem));
+    ma->base.dw = dataWin;
     maAudioSystemVtable.init = maInit;
     maAudioSystemVtable.destroy = maDestroy;
     maAudioSystemVtable.update = maUpdate;

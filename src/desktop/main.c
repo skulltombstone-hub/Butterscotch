@@ -1224,7 +1224,7 @@ int main(int argc, char* argv[]) {
 #if defined(USE_OPENAL)
             audioSystem = (AudioSystem*) AlAudioSystem_create();
 #elif defined(USE_MINIAUDIO)
-            audioSystem = (AudioSystem*) MaAudioSystem_create();
+            audioSystem = (AudioSystem*) MaAudioSystem_create(dataWin);
 #else
             audioSystem = (AudioSystem*) NoopAudioSystem_create();
 #endif

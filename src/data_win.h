@@ -199,6 +199,7 @@ typedef struct {
 typedef struct {
     bool present;
     const char* name;
+    const char* path; // nullptr for pre-GM 2024.14+ games
 } AudioGroup;
 
 typedef struct {
