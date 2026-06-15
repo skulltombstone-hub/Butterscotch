@@ -482,6 +482,41 @@ void Runner_scrollBackgrounds(Runner* runner) {
     }
 }
 
+static void drawBackground(
+    Runner* runner,
+    int32_t tpagIndex,
+    bool stretch,
+    float roomW,
+    float roomH,
+    bool tileX,
+    bool tileY,
+    float backgroundX,
+    float backgroundY,
+    float layerOffsetX,
+    float layerOffsetY,
+    float xScale,
+    float yScale,
+    uint32_t blend,
+    float alpha
+) {
+    if (0 > tpagIndex)
+        return;
+
+    if (stretch) {
+        // Stretch to fill room dimensions
+        TexturePageItem* tpag = &runner->dataWin->tpag.items[tpagIndex];
+        float xscale = roomW / (float) tpag->boundingWidth;
+        float yscale = roomH / (float) tpag->boundingHeight;
+        runner->renderer->vtable->drawSprite(runner->renderer, tpagIndex, 0.0f, 0.0f, 0.0f, 0.0f, xscale, yscale, 0.0f, blend, alpha);
+    } else if (tileX || tileY) {
+        Renderer_drawBackgroundTiled(runner->renderer, tpagIndex, layerOffsetX + backgroundX, layerOffsetY + backgroundY, xScale, yScale, tileX, tileY, roomW, roomH, alpha);
+    } else {
+        // Single placement
+        runner->renderer->vtable->drawSprite(runner->renderer, tpagIndex, layerOffsetX + backgroundX, layerOffsetY + backgroundY, 0.0f, 0.0f, xScale, yScale, 0.0f, blend, alpha);
+    }
+}
+
+// Legacy GameMaker: Studio 1.x backgrounds
 void Runner_drawBackgrounds(Runner* runner, bool foreground) {
     if (runner->renderer == nullptr) return;
     DataWin* dataWin = runner->dataWin;
@@ -494,20 +529,24 @@ void Runner_drawBackgrounds(Runner* runner, bool foreground) {
         if (0 > bg->backgroundIndex) continue;
 
         int32_t tpagIndex = Renderer_resolveBackgroundTPAGIndex(dataWin, bg->backgroundIndex);
-        if (0 > tpagIndex) continue;
 
-        if (bg->stretch) {
-            // Stretch to fill room dimensions
-            TexturePageItem* tpag = &dataWin->tpag.items[tpagIndex];
-            float xscale = roomW / (float) tpag->boundingWidth;
-            float yscale = roomH / (float) tpag->boundingHeight;
-            runner->renderer->vtable->drawSprite(runner->renderer, tpagIndex, 0.0f, 0.0f, 0.0f, 0.0f, xscale, yscale, 0.0f, 0xFFFFFF, bg->alpha);
-        } else if (bg->tileX || bg->tileY) {
-            Renderer_drawBackgroundTiled(runner->renderer, tpagIndex, bg->x, bg->y, bg->xScale, bg->yScale, bg->tileX, bg->tileY, roomW, roomH, bg->alpha);
-        } else {
-            // Single placement
-            runner->renderer->vtable->drawSprite(runner->renderer, tpagIndex, bg->x, bg->y, 0.0f, 0.0f, bg->xScale, bg->yScale, 0.0f, 0xFFFFFF, bg->alpha);
-        }
+        drawBackground(
+            runner,
+            tpagIndex,
+            bg->stretch,
+            roomW,
+            roomH,
+            bg->tileX,
+            bg->tileY,
+            bg->x,
+            bg->y,
+            0.0f,
+            0.0f,
+            bg->xScale,
+            bg->yScale,
+            0xFFFFFF,
+            bg->alpha
+        );
     }
 }
 
@@ -831,8 +870,7 @@ void Runner_draw(Runner* runner) {
             } else if (runner->renderer != nullptr) {
                 Renderer_drawSelf(runner->renderer, inst);
             }
-        } else if (d->type == DRAWABLE_LAYER)
-        {
+        } else if (d->type == DRAWABLE_LAYER) {
             // Re-resolve every iteration: a previous instance's Draw event may have called layer_create/layer_destroy and reallocated runner->runtimeLayers.
             RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, d->runtimeLayerId);
             if (runtimeLayer == nullptr || !runtimeLayer->visible) continue;
@@ -859,17 +897,23 @@ void Runner_draw(Runner* runner) {
                             continue;
                         }
                         int32_t tpagIndex = Renderer_resolveTPAGIndex(dataWin, bg->spriteIndex, bg->imageIndex);
-                        if (0 > tpagIndex) continue;
-                        if (bg->stretch) {
-                            TexturePageItem* tpag = &dataWin->tpag.items[tpagIndex];
-                            float xscale = roomW / (float) tpag->boundingWidth;
-                            float yscale = roomH / (float) tpag->boundingHeight;
-                            runner->renderer->vtable->drawSprite(runner->renderer, tpagIndex, 0.0f, 0.0f, 0.0f, 0.0f, xscale, yscale, 0.0f, bg->blend, bg->alpha);
-                        } else if (bg->hTiled || bg->vTiled) {
-                            Renderer_drawBackgroundTiled(runner->renderer, tpagIndex, layerOffsetX + bg->xOffset, layerOffsetY + bg->yOffset, bg->xScale, bg->yScale, bg->hTiled, bg->vTiled, roomW, roomH, bg->alpha);
-                        } else {
-                            runner->renderer->vtable->drawSprite(runner->renderer, tpagIndex, layerOffsetX + bg->xOffset, layerOffsetY + bg->yOffset, 0.0f, 0.0f, bg->xScale, bg->yScale, 0.0f, bg->blend, bg->alpha);
-                        }
+                        drawBackground(
+                            runner,
+                            tpagIndex,
+                            bg->stretch,
+                            roomW,
+                            roomH,
+                            bg->hTiled,
+                            bg->vTiled,
+                            bg->xOffset,
+                            bg->yOffset,
+                            layerOffsetX,
+                            layerOffsetY,
+                            bg->xScale,
+                            bg->yScale,
+                            bg->blend,
+                            bg->alpha
+                        );
                     }
                 }
                 continue;
@@ -949,7 +993,7 @@ void Runner_draw(Runner* runner) {
                         spr->scaleY, spr->rotation, el->blend,
                         el->alpha);
                 }
-            } else if(parsedLayer->type == RoomLayerType_Background) {
+            } else if (parsedLayer->type == RoomLayerType_Background) {
                 if (runner->renderer == nullptr) return;
                 DataWin* dataWin = runner->dataWin;
                 float roomW = (float) runner->currentRoom->width;
@@ -966,20 +1010,23 @@ void Runner_draw(Runner* runner) {
                 }
 
                 int32_t tpagIndex = Renderer_resolveTPAGIndex(dataWin, data->spriteIndex, data->imageIndex);
-                if (0 > tpagIndex) continue;
-
-                if (data->stretch) {
-                    // Stretch to fill room dimensions
-                    TexturePageItem* tpag = &dataWin->tpag.items[tpagIndex];
-                    float xscale = roomW / (float) tpag->boundingWidth;
-                    float yscale = roomH / (float) tpag->boundingHeight;
-                    runner->renderer->vtable->drawSprite(runner->renderer, tpagIndex, 0.0f, 0.0f, 0.0f, 0.0f, xscale, yscale, 0.0f, 0xFFFFFF, 1.0);
-                } else if (data->hTiled || data->vTiled) {
-                    Renderer_drawBackgroundTiled(runner->renderer, tpagIndex, layerOffsetX, layerOffsetY, 1.0f, 1.0f, data->hTiled, data->vTiled, roomW, roomH, 1.0);
-                } else {
-                    // Single placement
-                    runner->renderer->vtable->drawSprite(runner->renderer, tpagIndex, layerOffsetX, layerOffsetY, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0xFFFFFF, 1.0);
-                }
+                drawBackground(
+                    runner,
+                    tpagIndex,
+                    data->stretch,
+                    roomW,
+                    roomH,
+                    data->hTiled,
+                    data->vTiled,
+                    0.0f,
+                    0.0f,
+                    layerOffsetX,
+                    layerOffsetY,
+                    1.0f,
+                    1.0f,
+                    0xFFFFFF,
+                    1.0
+                );
             } else if(parsedLayer->type == RoomLayerType_Instances) {
                 // Instance depth is assigned from layers during room init (initRoom).
                 // Nothing to do here - instances are drawn from the DRAWABLE_INSTANCE path.
