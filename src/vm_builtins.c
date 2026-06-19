@@ -4117,10 +4117,8 @@ static RValue builtin_ds_exists(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE
     if (dsType == DS_TYPE_STACK && arrlen(runner->dsStackPool) > index && index >= 0)
         return RValue_makeBool(true);
 
-    if (dsType == DS_TYPE_GRID) {
-        logStubbedFunction(ctx, "ds_exists");
-        return RValue_makeBool(false);
-    }
+    if (dsType == DS_TYPE_GRID && arrlen(runner->dsGridPool) > index && index >= 0)
+        return RValue_makeBool(true);
 
     if (dsType == DS_TYPE_QUEUE && arrlen(runner->dsQueuePool) > index && index >= 0)
         return RValue_makeBool(true);
@@ -4759,6 +4757,182 @@ static RValue builtin_ds_list_replace(VMContext* ctx, RValue* args, MAYBE_UNUSED
     if (0 > pos || pos >= (int32_t) arrlen(list->items)) return RValue_makeUndefined();
     RValue_free(&list->items[pos]);
     list->items[pos] = RValue_makeIndependent(args[2]);
+    return RValue_makeUndefined();
+}
+
+// ===[ DS_GRID FUNCTIONS ]===
+static DsGrid* dsGridGet(Runner* runner, int32_t id) {
+    if (0 > id || id >= (int32_t) arrlen(runner->dsGridPool)) return nullptr;
+    if (runner->dsGridPool[id].freed) return nullptr;
+    return &runner->dsGridPool[id];
+}
+
+static RValue builtin_ds_grid_create(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 2) return RValue_makeUndefined();
+
+    Runner* runner = ctx->runner;
+    int32_t width = RValue_toInt32(args[0]);
+    int32_t height = RValue_toInt32(args[1]);
+
+    if (0 > width) width = 0;
+    if (0 > height) height = 0;
+    size_t count = (size_t) width * (size_t) height;
+
+    // Reuse a freed slot if available, matching native GameMaker behavior.
+    // Yes, some games (example: DELTARUNE Chapter 3's obj_board_playercamera_Other_10) rely on ds_list_create reusing the id of a list just destroyed.
+    int32_t poolSize = (int32_t) arrlen(runner->dsGridPool);
+    repeat(poolSize, i) {
+        if (runner->dsGridPool[i].freed) {
+            runner->dsGridPool[i].freed = false;
+            runner->dsGridPool[i].width = width;
+            runner->dsGridPool[i].height = height;
+            runner->dsGridPool[i].items = count > 0 ? safeCalloc(count, sizeof(RValue)) : nullptr;
+            return RValue_makeReal(i);
+        }
+    }
+
+    DsGrid newGrid = {0};
+    newGrid.width = width;
+    newGrid.height = height;
+    newGrid.items = count > 0 ? safeCalloc(count, sizeof(RValue)) : nullptr;
+    int32_t id = poolSize;
+    arrput(runner->dsGridPool, newGrid);
+    return RValue_makeReal(id);
+}
+
+static RValue builtin_ds_grid_destroy(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 1) return RValue_makeUndefined();
+
+    DsGrid* grid = dsGridGet(ctx->runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeUndefined();
+    size_t count = (size_t) grid->width * (size_t) grid->height;
+    repeat(count, i) {
+        RValue_free(&grid->items[i]);
+    }
+    free(grid->items);
+    grid->items = nullptr;
+    grid->width = 0;
+    grid->height = 0;
+    grid->freed = true;
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_grid_width(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 1) return RValue_makeUndefined();
+
+    DsGrid* grid = dsGridGet(ctx->runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeReal(0);
+    return RValue_makeReal(grid->width);
+}
+
+static RValue builtin_ds_grid_height(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 1) return RValue_makeUndefined();
+
+    DsGrid* grid = dsGridGet(ctx->runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeReal(0);
+    return RValue_makeReal(grid->height);
+}
+
+static RValue builtin_ds_grid_set(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 3) return RValue_makeUndefined();
+
+    DsGrid* grid = dsGridGet(ctx->runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeUndefined();
+    int32_t x = RValue_toInt32(args[1]);
+    int32_t y = RValue_toInt32(args[2]);
+
+    if (0 > x || 0 > y || x >= grid->width || y >= grid->height)
+        return RValue_makeUndefined();
+
+    RValue* slot = &grid->items[x + (y * grid->width)];
+    RValue newValue = RValue_makeIndependent(args[3]);
+    RValue_free(slot);
+    *slot = newValue;
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_grid_get(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 3) return RValue_makeUndefined();
+
+    DsGrid* grid = dsGridGet(ctx->runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeUndefined();
+    int32_t x = RValue_toInt32(args[1]);
+    int32_t y = RValue_toInt32(args[2]);
+
+    if (0 > x || 0 > y || x >= grid->width || y >= grid->height)
+        return RValue_makeUndefined();
+
+    return RValue_makeIndependent(grid->items[x + (y * grid->width)]);
+}
+
+static RValue builtin_ds_grid_add(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 4) return RValue_makeUndefined();
+
+    DsGrid* grid = dsGridGet(ctx->runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeUndefined();
+    int32_t x = RValue_toInt32(args[1]);
+    int32_t y = RValue_toInt32(args[2]);
+
+    if (0 > x || 0 > y || x >= grid->width || y >= grid->height)
+        return RValue_makeUndefined();
+
+    RValue* slot = &grid->items[x + (y * grid->width)];
+    if (slot->type == RVALUE_STRING && args[3].type == RVALUE_STRING) {
+        // If they are both strings, then we concatenate them
+        const char* sa = requireNotNull(slot->string);
+        const char* sb = requireNotNull(args[3].string);
+        size_t lenA = strlen(sa);
+        size_t lenB = strlen(sb);
+        char* result = safeMalloc(lenA + lenB + 1);
+        memcpy(result, sa, lenA);
+        memcpy(result + lenA, sb, lenB + 1);
+        RValue_free(slot);
+        *slot = RValue_makeOwnedString(result);
+    } else {
+        // Anything else is real addition
+        GMLReal sum = RValue_toReal(*slot) + RValue_toReal(args[3]);
+        RValue_free(slot);
+        *slot = RValue_makeReal(sum);
+    }
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_ds_grid_resize(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (argCount > 3) return RValue_makeUndefined();
+
+    DsGrid* grid = dsGridGet(ctx->runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeUndefined();
+    int32_t width = RValue_toInt32(args[1]);
+    int32_t height = RValue_toInt32(args[2]);
+    if (0 > width) width = 0;
+    if (0 > height) height = 0;
+
+    size_t count = (size_t) width * (size_t) height;
+    RValue* newGrid = count > 0 ? safeCalloc(count, sizeof(RValue)) : nullptr;
+
+    int32_t copyWidth = width > grid->width ? grid->width : width;
+    int32_t copyHeight = height > grid->height ? grid->height : height;
+
+    repeat(copyHeight, y) {
+        repeat(copyWidth, x) {
+            // Steal ownership of the cell
+            newGrid[x + (y * width)] = grid->items[x + (y * grid->width)];
+        }
+    }
+
+    // Free any cells that fell outside the new bounds
+    repeat(grid->height, y) {
+        repeat(grid->width, x) {
+            if (x >= copyWidth || y >= copyHeight) {
+                RValue_free(&grid->items[x + (y * grid->width)]);
+            }
+        }
+    }
+
+    free(grid->items);
+    grid->items = newGrid;
+    grid->width = width;
+    grid->height = height;
     return RValue_makeUndefined();
 }
 
@@ -15359,6 +15533,16 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "ds_list_write", builtin_ds_list_write);
     VM_registerBuiltin(ctx, "ds_list_read", builtin_ds_list_read);
     VM_registerBuiltin(ctx, "ds_list_replace", builtin_ds_list_replace);
+
+    // ds_grid
+    VM_registerBuiltin(ctx, "ds_grid_create", builtin_ds_grid_create);
+    VM_registerBuiltin(ctx, "ds_grid_destroy", builtin_ds_grid_destroy);
+    VM_registerBuiltin(ctx, "ds_grid_width", builtin_ds_grid_width);
+    VM_registerBuiltin(ctx, "ds_grid_height", builtin_ds_grid_height);
+    VM_registerBuiltin(ctx, "ds_grid_set", builtin_ds_grid_set);
+    VM_registerBuiltin(ctx, "ds_grid_get", builtin_ds_grid_get);
+    VM_registerBuiltin(ctx, "ds_grid_add", builtin_ds_grid_add);
+    VM_registerBuiltin(ctx, "ds_grid_resize", builtin_ds_grid_resize);
 
     // ds_stack
     VM_registerBuiltin(ctx, "ds_stack_create", builtin_ds_stack_create);

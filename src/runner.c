@@ -1767,6 +1767,17 @@ static void cleanupState(Runner* runner) {
     arrfree(runner->dsStackPool);
     runner->dsStackPool = nullptr;
 
+    repeat((int32_t) arrlen(runner->dsGridPool), i) {
+        DsGrid* grid = &runner->dsGridPool[i];
+        size_t count = (size_t) grid->width * (size_t) grid->height;
+        repeat(count, j) {
+            RValue_free(&grid->items[j]);
+        }
+        free(grid->items);
+    }
+    arrfree(runner->dsGridPool);
+    runner->dsGridPool = nullptr;
+
     // Free struct instances.
     // Anything still here at shutdown is leaked refs or a reference cycle - bulk free regardless of refCount.
     // Because structs can reference each other, we need to free every struct's contents FIRST, then we can free the Instance structs themselves.

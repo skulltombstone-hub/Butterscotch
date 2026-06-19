@@ -301,6 +301,13 @@ typedef struct {
     bool freed;    // true when the slot is destroyed and available for reuse by ds_priority_queue_create
 } DsPriority;
 
+typedef struct {
+    RValue* items; // malloc'd array of items
+    int32_t width;
+    int32_t height;
+    bool freed; // true when the slot is destroyed and available for reuse by ds_grid_create
+} DsGrid;
+
 // ===[ GML Buffer System ]===
 
 // Buffer type constants (matching GML)
@@ -532,6 +539,7 @@ struct Runner {
     DsQueue* dsQueuePool; // stb_ds array of DsQueue
     DsStack* dsStackPool; // stb_ds array of DsStack    
     DsPriority* dsPriorityPool; // stb_ds array of DsPriority
+    DsGrid* dsGridPool; // stb_ds array of DsGrid
     GmlBuffer* gmlBufferPool; // stb_ds array of GmlBuffer
     MpGrid* mpGridPool; // stb_ds array of motion-planning grids
 
