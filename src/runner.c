@@ -1169,17 +1169,13 @@ void Runner_drawViews(Runner* runner, int32_t gameW, int32_t gameH, bool debugSh
     }
 
     if (!anyViewRendered) {
-        // No views enabled: render with default full-screen view.
-        // gameW/gameH already include the widescreen extra, shift the world origin by half of it on each grown axis so the original room stays centered and the revealed area is split evenly between the opposing edges.
-        runner->viewCurrent = 0;
-        int32_t fullViewX = -(runner->widescreenExtraWidth / 2);
-        int32_t fullViewY = -(runner->widescreenExtraHeight / 2);
         // See GameMaker-HTML5's "DrawViews", in specific the !m_enableviews path
         // When views aren't used, the room width/height is used
-        int32_t fullViewW = (int32_t) runner->currentRoom->width;
-        int32_t fullViewH = (int32_t) runner->currentRoom->height;
-        applyFreeCamera(runner, &fullViewX, &fullViewY, &fullViewW, &fullViewH);
-        renderer->vtable->beginView(renderer, fullViewX, fullViewY, fullViewW, fullViewH, 0, 0, gameW, gameH, 0.0f);
+        int32_t viewX, viewY, viewW, viewH;
+        expandViewAxis(0, (int32_t) runner->currentRoom->width, gameW, widescreenBaseW, &viewX, &viewW);
+        expandViewAxis(0, (int32_t) runner->currentRoom->height, gameH, widescreenBaseH, &viewY, &viewH);
+        applyFreeCamera(runner, &viewX, &viewY, &viewW, &viewH);
+        renderer->vtable->beginView(renderer, viewX, viewY, viewW, viewH, 0, 0, gameW, gameH, 0);
         Runner_draw(runner);
 
         if (debugShowCollisionMasks) DebugOverlay_drawCollisionMasks(runner);
