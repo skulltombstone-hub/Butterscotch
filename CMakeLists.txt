@@ -159,7 +159,6 @@ add_library(bzip2 STATIC
 )
 target_include_directories(bzip2 PUBLIC vendor/bzip2)
 target_compile_options(bzip2 PRIVATE -w)
-target_compile_definitions(bzip2 PRIVATE BZ_NO_STDIO)
 
 # Spatial grid logs
 option(ENABLE_SPATIAL_GRID_LOGS "Enable Spatial Grid logs" OFF)
