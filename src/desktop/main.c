@@ -822,7 +822,7 @@ static void writeFramebufferAsPng(GLuint fbo, int width, int height, const char*
     }
 
     free(pixels);
-    printf("%s: %s (%dx%d)\n", logPrefix, filename, width, height);
+    fprintf(stderr, "%s: %s (%dx%d)\n", logPrefix, filename, width, height);
 }
 
 static void captureScreenshot(GLuint fbo, const char* filenamePattern, int frameNumber, int width, int height, bool flipY) {
@@ -974,7 +974,7 @@ int main(int argc, char* argv[]) {
     int32_t inputFrameCount = 0;
 
     while (true) {
-        printf("Loading %s...\n", args.dataWinPath);
+        fprintf(stderr, "Loading %s...\n", args.dataWinPath);
 
         DataWinParserOptions options = {0};
         options.parseGen8 = true;
@@ -1007,12 +1007,12 @@ int main(int argc, char* argv[]) {
         DataWin* dataWin = DataWin_parse(currentDataWinPath, options);
 
         Gen8* gen8 = &dataWin->gen8;
-        printf("Loaded \"%s\" (%d) successfully! [WAD Version %u / GameMaker version %u.%u.%u.%u]\n", gen8->name, gen8->gameID, gen8->wadVersion, dataWin->detectedFormat.major, dataWin->detectedFormat.minor, dataWin->detectedFormat.release, dataWin->detectedFormat.build);
+        fprintf(stderr, "Loaded \"%s\" (%d) successfully! [WAD Version %u / GameMaker version %u.%u.%u.%u]\n", gen8->name, gen8->gameID, gen8->wadVersion, dataWin->detectedFormat.major, dataWin->detectedFormat.minor, dataWin->detectedFormat.release, dataWin->detectedFormat.build);
 
 #ifdef HAVE_MALLINFO2
         {
             struct mallinfo2 mi = mallinfo2();
-            printf("Memory after data.win parsing: used=%zu bytes (%.1f KB)\n", mi.uordblks, mi.uordblks / 1024.0f);
+            fprintf(stderr, "Memory after data.win parsing: used=%zu bytes (%.1f KB)\n", mi.uordblks, mi.uordblks / 1024.0f);
         }
 #endif
 
@@ -1035,7 +1035,7 @@ int main(int argc, char* argv[]) {
         if (args.hasSeed) {
             srand((unsigned int) args.seed);
             vm->hasFixedSeed = true;
-            printf("Using fixed RNG seed: %d\n", args.seed);
+            fprintf(stderr, "Using fixed RNG seed: %d\n", args.seed);
         }
 
         if (args.printRooms) {
@@ -1799,7 +1799,7 @@ int main(int argc, char* argv[]) {
                 free(currentGameArgs[i]);
             }
             arrfree(currentGameArgs);
-            printf("Bye! :3\n");
+            fprintf(stderr, "Bye! :3\n");
 #ifdef _WIN32
             timeEndPeriod(1);
 #endif
