@@ -50,4 +50,20 @@ static inline void rt_glDeleteFramebuffers(GLsizei n, const GLuint* ids) {
 #undef glDeleteFramebuffers
 #define glDeleteFramebuffers rt_glDeleteFramebuffers
 
+static inline GLenum rt_glCheckFramebufferStatus(GLenum target) {
+    if (glCheckFramebufferStatus) return glCheckFramebufferStatus(target);
+    else return glCheckFramebufferStatusEXT(target);
+}
+#undef glCheckFramebufferStatus
+#define glCheckFramebufferStatus rt_glCheckFramebufferStatus
+
+static inline void rt_glBlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
+                                        GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
+                                        GLbitfield mask, GLenum filter) {
+    if (glBlitFramebuffer) glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+    else glBlitFramebufferEXT(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+}
+#undef glBlitFramebuffer
+#define glBlitFramebuffer rt_glBlitFramebuffer
+
 #endif
